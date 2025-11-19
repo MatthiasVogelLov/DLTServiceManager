@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { 
@@ -48,7 +49,12 @@ import {
   Undo2,
   CheckSquare,
   Bell,
-  AlertCircle
+  AlertCircle,
+  ClipboardCheck,
+  PenTool,
+  Navigation,
+  Map,
+  Menu
 } from 'lucide-react';
 
 // --- Types & Interfaces ---
@@ -141,6 +147,24 @@ interface Task {
   relatedId?: string;
 }
 
+// --- Protocol / Checklist Types ---
+type FieldType = 'text' | 'number' | 'checkbox' | 'select' | 'signature' | 'header';
+
+interface ProtocolField {
+  id: string;
+  label: string;
+  type: FieldType;
+  options?: string[]; // for select
+  value?: any;
+  required?: boolean;
+}
+
+interface ProtocolSection {
+  id: string;
+  title: string;
+  fields: ProtocolField[];
+}
+
 // --- Helper Functions ---
 
 const getMonday = (d: Date) => {
@@ -164,19 +188,65 @@ const getKw = (d: Date) => {
   return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
 }
 
+// German Holidays Calculation
+const getGermanHolidays = (year: number) => {
+  const holidays: Record<string, string> = {};
+  
+  // Fixed
+  holidays[`${year}-01-01`] = 'Neujahr';
+  holidays[`${year}-05-01`] = 'Tag der Arbeit';
+  holidays[`${year}-10-03`] = 'Tag der Deutschen Einheit';
+  holidays[`${year}-12-25`] = '1. Weihnachtstag';
+  holidays[`${year}-12-26`] = '2. Weihnachtstag';
+
+  // Easter Calculation (Gauss)
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  
+  let month = Math.floor((h + l - 7 * m + 114) / 31);
+  let day = ((h + l - 7 * m + 114) % 31) + 1;
+
+  const easterDate = new Date(year, month - 1, day);
+  
+  const formatDate = (date: Date) => date.toISOString().split('T')[0];
+
+  // Easter dependent
+  const karfreitag = new Date(easterDate); karfreitag.setDate(easterDate.getDate() - 2);
+  const ostermontag = new Date(easterDate); ostermontag.setDate(easterDate.getDate() + 1);
+  const himmelfahrt = new Date(easterDate); himmelfahrt.setDate(easterDate.getDate() + 39);
+  const pfingstmontag = new Date(easterDate); pfingstmontag.setDate(easterDate.getDate() + 50);
+
+  holidays[formatDate(karfreitag)] = 'Karfreitag';
+  holidays[formatDate(ostermontag)] = 'Ostermontag';
+  holidays[formatDate(himmelfahrt)] = 'Christi Himmelfahrt';
+  holidays[formatDate(pfingstmontag)] = 'Pfingstmontag';
+
+  return holidays;
+};
+
 const generateMockData = (): Entity[] => {
   const customers = [];
   const firstNames = ['Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Wagner', 'Becker', 'Schulz', 'Hoffmann'];
   const industries = ['Automotive', 'Chemie', 'Lebensmittel', 'Logistik', 'Pharma', 'Papier', 'Metall', 'Kunststoff', 'Energie', 'Bau'];
 
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 15; i++) {
     const custId = `cust_${i}`;
     customers.push({
       id: custId,
       type: 'customer' as EntityType,
-      name: `${firstNames[i]} ${industries[i]} GmbH`,
+      name: `${firstNames[i % 10]} ${industries[i % 10]} GmbH`,
       customerNumber: `KD-${10000 + i}`,
-      description: `Kunde im Bereich ${industries[i]}`,
+      description: `Kunde im Bereich ${industries[i % 10]}`,
       images: []
     });
 
@@ -191,14 +261,21 @@ const generateMockData = (): Entity[] => {
     });
 
     // Machine
-    // Ensure we generate machines that are due SOON for the planning board
     const machId = `mach_${i}`;
     const hours = Math.floor(Math.random() * 5000);
     
-    // Randomly assign due dates: some overdue, some next week, some far future
-    const randomDays = Math.floor(Math.random() * 60) - 10; // -10 to +50 days
-    const nextDate = new Date();
-    nextDate.setDate(nextDate.getDate() + randomDays);
+    // FORCE Planned Stock:
+    const isUrgent = i < 8; // First 8 machines are urgent
+    const today = new Date();
+    const nextDate = new Date(today);
+    
+    if (isUrgent) {
+      // Due between yesterday and in 3 days
+      nextDate.setDate(today.getDate() + (Math.floor(Math.random() * 5) - 1));
+    } else {
+      // Due later
+      nextDate.setDate(today.getDate() + 30 + Math.floor(Math.random() * 60));
+    }
     
     customers.push({
       id: machId,
@@ -211,7 +288,7 @@ const generateMockData = (): Entity[] => {
         operatingHours: hours,
         nextServiceHours: hours + 200,
         nextServiceDate: nextDate.toISOString().split('T')[0],
-        status: randomDays < 0 ? 'critical' : (randomDays < 14 ? 'warning' : 'ok'),
+        status: isUrgent ? 'warning' : 'ok',
         serviceSize: Math.random() > 0.7 ? 'L' : 'M'
       }
     });
@@ -262,12 +339,13 @@ const generateMockAssignments = (entities: Entity[], techs: Technician[]): Assig
     }
   }
 
-  // Future assignments (for shopping/planning)
-  for (let i = 0; i < 15; i++) {
+  // Future assignments - But leave some machines free for the "Planning Stock"
+  // Only assign about 30% of machines to future dates
+  for (let i = 0; i < 5; i++) {
     const tech = techs[Math.floor(Math.random() * techs.length)];
-    const machine = machines[Math.floor(Math.random() * machines.length)];
+    const machine = machines[machines.length - 1 - i]; // Use last few machines
     const date = new Date(today);
-    date.setDate(date.getDate() + Math.floor(Math.random() * 14));
+    date.setDate(date.getDate() + Math.floor(Math.random() * 5) + 1); // Next week
 
     if (machine) {
       assignments.push({
@@ -315,7 +393,7 @@ const initialData: Entity[] = [
       operatingHours: 1950, 
       nextServiceHours: 2000, 
       lastServiceDate: '2023-05-10',
-      nextServiceDate: '2023-11-15', 
+      nextServiceDate: new Date().toISOString().split('T')[0], // Due TODAY
       status: 'warning',
       serviceSize: 'M'
     } 
@@ -345,6 +423,77 @@ const initialPackages: WorkPackage[] = [
   { id: 'pkg_2', name: 'Abfahrt / Rüstzeit', duration: 0.5 },
   { id: 'pkg_3', name: 'Nacharbeit / Doku', duration: 0.5 },
   { id: 'pkg_4', name: 'Hotelübernachtung', duration: 0 },
+];
+
+// Template for the Maintenance Protocol (based on PDF screenshots)
+const maintenanceProtocolTemplate: ProtocolSection[] = [
+  {
+    id: 's_header',
+    title: 'Stammdaten',
+    fields: [
+      { id: 'customer', label: 'Kunde', type: 'select', options: ['Müller Produktionstechnik', 'Bäckerei Schmidt'], required: true },
+      { id: 'machine', label: 'Maschine/Kompressor', type: 'text', value: 'Kompressor X-100', required: true }
+    ]
+  },
+  {
+    id: 's_10',
+    title: '10 Druckluft-Öl-Separator-Kit',
+    fields: [
+      { id: 'f_10_art', label: 'Artikelnummer wählen', type: 'select', options: ['Kit-A (Standard)', 'Kit-B (Premium)'] },
+      { id: 'f_10_qty', label: 'Anzahl / Menge', type: 'number' },
+      { id: 'f_10_opt', label: 'Altteile vorgelegt?', type: 'checkbox' }
+    ]
+  },
+  {
+    id: 's_11',
+    title: '11 Luftansaugfilterpatrone',
+    fields: [
+      { id: 'f_11_art', label: 'Artikelnummer wählen', type: 'select', options: ['LF-992', 'LF-100'] },
+      { id: 'f_11_qty', label: 'Anzahl / Menge', type: 'number' }
+    ]
+  },
+  {
+    id: 's_12',
+    title: '12 Ölfilter-Kit',
+    fields: [
+      { id: 'f_12_art', label: 'Artikelnummer wählen', type: 'select', options: ['OF-200', 'OF-X'] },
+      { id: 'f_12_qty', label: 'Anzahl / Menge', type: 'number' }
+    ]
+  },
+  {
+    id: 's_13',
+    title: '13 Ölfüllung für Kompressor',
+    fields: [
+      { id: 'f_13_art', label: 'Ölsorte wählen', type: 'select', options: ['Standard Mineral', 'Synthetik Hochleist.'] },
+      { id: 'f_13_qty', label: 'Menge (Liter)', type: 'number' }
+    ]
+  },
+  {
+    id: 's_100',
+    title: 'Messwerte & Einstellungen',
+    fields: [
+      { id: 'f_100_p', label: 'Einstellung Druckschalter (bar)', type: 'number' },
+      { id: 'f_101_t', label: 'Einstellung Stern-Dreieck-Zeit (sec)', type: 'number' },
+      { id: 'f_103_a', label: 'Einstellung Überstromauslöser (A)', type: 'number' },
+      { id: 'f_104_v', label: 'Messung Stromaufnahme (A bei 400V)', type: 'number' }
+    ]
+  },
+  {
+    id: 's_hours',
+    title: 'Betriebsstunden',
+    fields: [
+      { id: 'f_h_run', label: 'Betriebsstunden-Nr. I (Gesamt)', type: 'number' },
+      { id: 'f_h_load', label: 'Laststunden-Nr. II', type: 'number' }
+    ]
+  },
+  {
+    id: 's_sig',
+    title: 'Abschluss & Unterschrift',
+    fields: [
+      { id: 'f_sig_tech', label: 'Unterschrift Servicetechniker', type: 'signature' },
+      { id: 'f_sig_cust', label: 'Unterschrift Kunde', type: 'signature' }
+    ]
+  }
 ];
 
 const getRecursiveParts = (entityId: string, allData: Entity[]): Entity[] => {
@@ -473,6 +622,132 @@ const LoginScreen = ({ onLogin }: { onLogin: (username: string) => void }) => {
                 {loading ? 'Anmeldung läuft...' : 'Anmelden'}
               </button>
            </form>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ProtocolsView = () => {
+  const [sections, setSections] = useState<ProtocolSection[]>(maintenanceProtocolTemplate);
+  const [activeCustomer, setActiveCustomer] = useState<string>('');
+  const [isComplete, setIsComplete] = useState(false);
+
+  const handleFieldChange = (sectionId: string, fieldId: string, value: any) => {
+    setSections(prev => prev.map(s => {
+      if (s.id !== sectionId) return s;
+      return {
+        ...s,
+        fields: s.fields.map(f => f.id === fieldId ? { ...f, value } : f)
+      };
+    }));
+  };
+
+  if (isComplete) {
+    return (
+      <div className="p-8 max-w-3xl mx-auto text-center">
+        <div className="bg-white p-12 rounded-2xl shadow-sm border border-gray-200">
+          <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircle2 className="w-10 h-10" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Protokoll gespeichert</h2>
+          <p className="text-gray-500 mb-8">Das Wartungsprotokoll wurde erfolgreich erstellt und als PDF an den Kunden versendet.</p>
+          <button onClick={() => setIsComplete(false)} className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">
+            Neues Protokoll erstellen
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 md:p-8 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Wartungsprotokoll</h1>
+          <p className="text-gray-500">Digitales Formular (Tablet-Optimiert)</p>
+        </div>
+        <button className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 flex items-center">
+          <Printer className="w-4 h-4 mr-2" /> Druckvorschau
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        {/* Form Generator */}
+        <div className="divide-y divide-gray-200">
+          {sections.map(section => (
+            <div key={section.id} className="p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
+                <ClipboardCheck className="w-5 h-5 mr-2 text-blue-600" />
+                {section.title}
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {section.fields.map(field => (
+                  <div key={field.id} className={field.type === 'checkbox' ? 'flex items-center mt-4' : ''}>
+                    {field.type !== 'checkbox' && (
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{field.label}</label>
+                    )}
+                    
+                    {field.type === 'text' && (
+                      <input 
+                        type="text" 
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                        value={field.value || ''}
+                        onChange={e => handleFieldChange(section.id, field.id, e.target.value)}
+                      />
+                    )}
+
+                    {field.type === 'number' && (
+                      <input 
+                        type="number" 
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                        value={field.value || ''}
+                        onChange={e => handleFieldChange(section.id, field.id, e.target.value)}
+                      />
+                    )}
+
+                    {field.type === 'select' && (
+                      <select 
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                        value={field.value || ''}
+                        onChange={e => handleFieldChange(section.id, field.id, e.target.value)}
+                      >
+                        <option value="">Bitte wählen...</option>
+                        {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    )}
+
+                    {field.type === 'checkbox' && (
+                      <label className="flex items-center cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                          checked={field.value || false}
+                          onChange={e => handleFieldChange(section.id, field.id, e.target.checked)}
+                        />
+                        <span className="ml-2 text-sm font-medium text-gray-900">{field.label}</span>
+                      </label>
+                    )}
+
+                    {field.type === 'signature' && (
+                      <div className="col-span-2 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer">
+                        <PenTool className="w-8 h-8 mx-auto text-gray-400 mb-2" />
+                        <span className="text-sm text-gray-500">Hier tippen zum Unterschreiben</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="bg-gray-50 p-6 border-t border-gray-200 flex justify-end">
+          <button 
+            onClick={() => setIsComplete(true)}
+            className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-sm"
+          >
+            Protokoll abschließen
+          </button>
         </div>
       </div>
     </div>
@@ -612,7 +887,7 @@ const TasksView = ({ data, technicians, assignments }: { data: Entity[], technic
 
 const AssetBrowser = ({ data, onUpdateEntity }: { data: Entity[], onUpdateEntity: (e: Entity) => void }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [listWidth, setListWidth] = useState(25); 
+  const [listWidth, setListWidth] = useState(30); 
   const [isResizing, setIsResizing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isEditing, setIsEditing] = useState(false);
@@ -657,9 +932,12 @@ const AssetBrowser = ({ data, onUpdateEntity }: { data: Entity[], onUpdateEntity
   }, [isResizing]);
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full overflow-hidden relative">
       {/* List Column */}
-      <div style={{ width: `${listWidth}%` }} className="flex flex-col border-r border-gray-200 bg-white min-w-[300px] flex-shrink-0">
+      <div 
+        style={{ width: window.innerWidth < 768 ? '100%' : `${listWidth}%` }} 
+        className={`flex flex-col border-r border-gray-200 bg-white flex-shrink-0 ${selectedId && window.innerWidth < 768 ? 'hidden' : 'flex'}`}
+      >
         <div className="p-4 border-b border-gray-200 flex-shrink-0">
           <div className="text-xs font-bold text-gray-500 uppercase mb-2">Hierarchie</div>
           <div className="relative mb-2">
@@ -723,18 +1001,23 @@ const AssetBrowser = ({ data, onUpdateEntity }: { data: Entity[], onUpdateEntity
         </div>
       </div>
 
-      {/* Resizer */}
+      {/* Resizer - Desktop Only */}
       <div 
-        className="w-1 bg-gray-200 hover:bg-blue-400 cursor-col-resize transition-colors flex items-center justify-center"
+        className="w-1 bg-gray-200 hover:bg-blue-400 cursor-col-resize transition-colors hidden md:flex items-center justify-center"
         onMouseDown={() => setIsResizing(true)}
       >
         <div className="w-0.5 h-8 bg-gray-400 rounded-full"></div>
       </div>
 
       {/* Detail Column */}
-      <div className="flex-1 bg-white flex flex-col overflow-hidden min-w-0">
+      <div className={`flex-1 bg-white flex flex-col overflow-hidden min-w-0 ${!selectedId && window.innerWidth < 768 ? 'hidden' : 'flex'}`}>
         {selectedEntity ? (
           <div className="flex flex-col h-full">
+            {/* Mobile Back Button */}
+            <div className="md:hidden p-4 border-b border-gray-200 flex items-center text-blue-600 font-medium cursor-pointer" onClick={() => setSelectedId(selectedEntity.parentId || null)}>
+               <ChevronLeft className="w-5 h-5 mr-1" /> Zurück
+            </div>
+
             {/* Detail Header */}
             <div className="p-6 border-b border-gray-200 flex justify-between items-start">
               <div className="flex items-start space-x-4">
@@ -828,7 +1111,7 @@ const AssetBrowser = ({ data, onUpdateEntity }: { data: Entity[], onUpdateEntity
                </div>
 
                {/* Actions */}
-               <div className="flex space-x-4 print:hidden">
+               <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4 print:hidden">
                  <button className="flex-1 py-3 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-400 transition-colors">
                    Wartungsprotokoll erstellen
                  </button>
@@ -876,6 +1159,10 @@ const PlanningView = ({
   const [sidebarTab, setSidebarTab] = useState<'machines' | 'services'>('machines');
   const [isDraggingOverStock, setIsDraggingOverStock] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<string>('All');
+  const [showRouteOverlay, setShowRouteOverlay] = useState<{techId: string, date: string} | null>(null);
+  
+  // Mobile Stock Toggle
+  const [isMobileStockOpen, setIsMobileStockOpen] = useState(false);
 
   const uniqueLocations = useMemo(() => Array.from(new Set(technicians.map(t => t.location))), [technicians]);
   const filteredTechnicians = useMemo(() => selectedLocation === 'All' ? technicians : technicians.filter(t => t.location === selectedLocation), [technicians, selectedLocation]);
@@ -883,6 +1170,9 @@ const PlanningView = ({
   const minHour = Math.min(...filteredTechnicians.map(t => t.workDayStart)) || 8;
   const maxHour = Math.max(...filteredTechnicians.map(t => t.workDayEnd)) || 18;
   const dayDuration = maxHour - minHour;
+
+  // Holidays
+  const holidays = useMemo(() => getGermanHolidays(currentWeekStart.getFullYear()), [currentWeekStart]);
 
   const isInRange = (dateStr: string | undefined) => {
     if (!dateStr) return false; 
@@ -900,13 +1190,17 @@ const PlanningView = ({
       if (e.type !== 'machine') return false;
       const status = e.details?.status;
       const nextDate = e.details?.nextServiceDate;
+      // Allow warning/critical status OR if date is set and overdue/in range
       const needsService = status === 'warning' || status === 'critical' || nextDate;
+      
       if (!needsService) return false;
       if (assignedIds.includes(e.id)) return false;
       if (!nextDate) return true; 
+      
       const d = new Date(nextDate);
       const now = new Date();
       now.setHours(0,0,0,0);
+      // Show if overdue or in range
       if (d < now) return true; 
       return isInRange(nextDate);
     });
@@ -1005,17 +1299,24 @@ const PlanningView = ({
     setAssignments(assignments.filter(a => a.id !== id));
   }
 
+  // Route Calc Mock
+  const calculateRoute = (techId: string, date: string) => {
+    const daysAssignments = assignments.filter(a => a.technicianId === techId && a.date === date);
+    daysAssignments.sort((a,b) => (a.startTime || 0) - (b.startTime || 0));
+    return daysAssignments;
+  }
+
   return (
-    <div className="flex h-full w-full overflow-hidden">
+    <div className="flex h-full w-full overflow-hidden relative">
       {/* Middle: Board */}
       <div className="flex-1 flex flex-col border-r border-gray-200 bg-gray-50 print:w-full print:border-none min-w-0">
         <div className="h-16 bg-white border-b border-gray-200 px-6 flex items-center justify-between flex-shrink-0 print:hidden">
-          <div className="flex items-center space-x-4">
-            <CalendarDays className="w-5 h-5 text-gray-500" />
-            <h2 className="text-lg font-bold text-gray-900">Einsatzplanung</h2>
+          <div className="flex items-center space-x-2 md:space-x-4 overflow-x-auto">
+            <CalendarDays className="w-5 h-5 text-gray-500 hidden md:block" />
+            <h2 className="text-lg font-bold text-gray-900 hidden md:block">Einsatzplanung</h2>
             
             {/* View Mode Toggle */}
-            <div className="flex bg-gray-100 rounded-lg p-1">
+            <div className="flex bg-gray-100 rounded-lg p-1 flex-shrink-0">
                <button onClick={() => setViewMode('day')} className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${viewMode === 'day' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Tag</button>
                <button onClick={() => setViewMode('week')} className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${viewMode === 'week' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Woche</button>
                <button onClick={() => setViewMode('month')} className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${viewMode === 'month' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Monat</button>
@@ -1023,7 +1324,7 @@ const PlanningView = ({
             
             {/* Location Filter */}
             <select 
-              className="bg-gray-50 border border-gray-300 rounded px-3 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              className="bg-gray-50 border border-gray-300 rounded px-3 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-500 hidden md:block"
               value={selectedLocation}
               onChange={(e) => setSelectedLocation(e.target.value)}
             >
@@ -1037,20 +1338,23 @@ const PlanningView = ({
             {viewMode === 'week' && (
               <div className="flex items-center space-x-2 text-sm">
                  <button onClick={() => navigateWeek(-1)} className="p-1 hover:bg-gray-100 rounded"><ChevronLeft className="w-4 h-4"/></button>
-                 <span className="font-mono">KW {Math.ceil((currentWeekStart.getDate() - 1 + new Date(currentWeekStart.getFullYear(), 0, 1).getDay()) / 7)}</span>
+                 <span className="font-mono whitespace-nowrap">KW {getKw(currentWeekStart)}</span>
                  <button onClick={() => navigateWeek(1)} className="p-1 hover:bg-gray-100 rounded"><ChevronRight className="w-4 h-4"/></button>
               </div>
             )}
           </div>
           <div className="flex items-center space-x-3">
-            <button onClick={() => window.print()} className="p-2 text-gray-500 hover:bg-blue-50 rounded-lg"><Printer className="w-5 h-5" /></button>
+            <button onClick={() => setIsMobileStockOpen(!isMobileStockOpen)} className="md:hidden px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg shadow">
+               📦 Vorrat
+            </button>
+            <button onClick={() => window.print()} className="p-2 text-gray-500 hover:bg-blue-50 rounded-lg hidden md:block"><Printer className="w-5 h-5" /></button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto bg-gray-50 print:bg-white print:p-0 relative">
            {viewMode === 'day' && (
              <div className="flex min-h-full bg-white shadow-sm m-4 rounded-xl border border-gray-200 overflow-hidden">
-                <div className="w-16 flex-shrink-0 border-r border-gray-200 bg-gray-50">
+                <div className="w-12 md:w-16 flex-shrink-0 border-r border-gray-200 bg-gray-50">
                    <div className="h-12 border-b border-gray-200 bg-white"></div>
                    {Array.from({ length: dayDuration + 1 }).map((_, i) => {
                      const hour = minHour + i;
@@ -1063,7 +1367,7 @@ const PlanningView = ({
                   {filteredTechnicians.map(tech => (
                     <div 
                        key={tech.id} 
-                       className="flex-1 min-w-[150px] border-r border-gray-200 bg-white relative group"
+                       className="flex-1 min-w-[200px] border-r border-gray-200 bg-white relative group"
                        onDragOver={(e) => e.preventDefault()}
                        onDrop={(e) => {
                           const rect = e.currentTarget.getBoundingClientRect();
@@ -1073,14 +1377,19 @@ const PlanningView = ({
                           handleDropOnBoard(e, tech.id, selectedDate, droppedHour);
                        }}
                     >
-                       <div className="h-12 border-b border-gray-200 bg-gray-50 flex items-center justify-center px-2 sticky top-0 z-10">
+                       <div className="h-12 border-b border-gray-200 bg-gray-50 flex items-center justify-between px-2 sticky top-0 z-10">
                           <div className="flex items-center space-x-2 overflow-hidden">
                              <div className="w-6 h-6 flex-shrink-0"><TechAvatar tech={tech} /></div>
                              <div className="flex flex-col overflow-hidden">
                                 <span className="text-sm font-medium truncate">{tech.name}</span>
-                                <span className="text-[10px] text-gray-400">{tech.location} | {tech.workDayStart}-{tech.workDayEnd}h</span>
                              </div>
                           </div>
+                          <button 
+                            onClick={() => setShowRouteOverlay({ techId: tech.id, date: selectedDate })}
+                            className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 font-medium flex items-center"
+                          >
+                            <Map className="w-3 h-3 mr-1" /> Route
+                          </button>
                        </div>
                        {Array.from({ length: dayDuration + 1 }).map((_, i) => (
                          <div key={i} className={`h-20 border-b border-gray-100 pointer-events-none ${minHour + i < tech.workDayStart || minHour + i >= tech.workDayEnd ? 'bg-gray-50/50' : ''}`}></div>
@@ -1109,16 +1418,19 @@ const PlanningView = ({
            )}
 
            {viewMode === 'week' && (
-             <div className="p-6">
-              <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
+             <div className="p-4 md:p-6 overflow-x-auto">
+              <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200 min-w-[800px]">
                 <div className="grid grid-cols-6 border-b border-gray-200 bg-gray-50 sticky top-0 z-20">
                    <div className="p-3 text-xs font-bold text-gray-500 uppercase border-r border-gray-200">Techniker</div>
                    {Array.from({length: 5}).map((_, i) => {
                      const d = new Date(currentWeekStart);
                      d.setDate(d.getDate() + i);
+                     const dateStr = d.toISOString().split('T')[0];
+                     const isHoliday = holidays[dateStr];
                      return (
-                       <div key={i} className="p-3 text-xs font-bold text-gray-500 uppercase border-l border-gray-200 text-center">
+                       <div key={i} className={`p-3 text-xs font-bold uppercase border-l border-gray-200 text-center ${isHoliday ? 'bg-red-50 text-red-600' : 'text-gray-500'}`}>
                          {d.toLocaleDateString('de-DE', {weekday: 'short', day: '2-digit', month: '2-digit'})}
+                         {isHoliday && <div className="text-[9px] font-normal mt-1">{isHoliday}</div>}
                        </div>
                      )
                    })}
@@ -1140,12 +1452,14 @@ const PlanningView = ({
                        d.setDate(d.getDate() + i);
                        const dateStr = d.toISOString().split('T')[0];
                        const daysAssignments = assignments.filter(a => a.technicianId === tech.id && a.date === dateStr);
+                       const isHoliday = holidays[dateStr];
+
                        return (
                          <div 
                            key={i} 
                            onDragOver={(e) => e.preventDefault()}
                            onDrop={(e) => handleDropOnBoard(e, tech.id, dateStr)}
-                           className="border-l border-gray-200 relative bg-gray-50/30 hover:bg-gray-50 transition-colors h-40"
+                           className={`border-l border-gray-200 relative transition-colors h-40 ${isHoliday ? 'bg-red-50/30' : 'bg-gray-50/30 hover:bg-gray-50'}`}
                          >
                            <div className="absolute inset-0 pointer-events-none flex flex-col opacity-10">
                              {Array.from({length: 5}).map((_, idx) => (<div key={idx} className="flex-1 border-b border-gray-900"></div>))}
@@ -1215,18 +1529,26 @@ const PlanningView = ({
         </div>
       </div>
 
-      {/* Right: Stock */}
+      {/* Right: Stock (Responsive) */}
       <div 
         onDragOver={(e) => { e.preventDefault(); setIsDraggingOverStock(true); }}
         onDragLeave={() => setIsDraggingOverStock(false)}
         onDrop={handleDropOnStock}
-        className={`w-80 border-l border-gray-200 bg-white flex flex-col h-full flex-shrink-0 print:hidden transition-colors ${isDraggingOverStock ? 'bg-red-50 border-red-300' : 'bg-white'}`}
+        className={`
+          fixed inset-y-0 right-0 z-40 w-80 bg-white border-l border-gray-200 shadow-2xl transform transition-transform duration-300
+          md:relative md:transform-none md:shadow-none
+          ${isMobileStockOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}
+          ${isDraggingOverStock ? 'bg-red-50 border-red-300' : 'bg-white'}
+        `}
       >
         <div className="h-16 border-b border-gray-200 px-4 flex items-center justify-between flex-shrink-0">
            <h3 className={`font-bold flex items-center transition-colors ${isDraggingOverStock ? 'text-red-600' : 'text-gray-700'}`}>
              {isDraggingOverStock ? <Trash2 className="w-4 h-4 mr-2" /> : <Briefcase className="w-4 h-4 mr-2" />}
              {isDraggingOverStock ? 'Aus Planung entfernen' : 'Planungsvorrat'}
            </h3>
+           <button onClick={() => setIsMobileStockOpen(false)} className="md:hidden text-gray-400 hover:text-gray-900">
+             <X className="w-5 h-5" />
+           </button>
         </div>
         <div className={`flex border-b border-gray-200 ${isDraggingOverStock ? 'opacity-50 pointer-events-none' : ''}`}>
           <button onClick={() => setSidebarTab('machines')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider ${sidebarTab === 'machines' ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/50' : 'text-gray-500 hover:bg-gray-50'}`}>Wartungen</button>
@@ -1238,7 +1560,7 @@ const PlanningView = ({
             <div><label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Bis</label><input type="date" value={filterEnd} onChange={(e) => setFilterEnd(e.target.value)} className="w-full text-xs border border-gray-300 rounded p-1.5" /></div>
           </div>
         )}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50 h-full">
            {isDraggingOverStock ? (
              <div className="h-full flex flex-col items-center justify-center text-red-400 border-2 border-dashed border-red-200 rounded-xl"><Undo2 className="w-12 h-12 mb-2" /><p className="text-sm font-medium">Hier loslassen zum Entfernen</p></div>
            ) : (
@@ -1266,7 +1588,7 @@ const PlanningView = ({
                  <p className="text-xs text-gray-400 mb-2 text-center">Bausteine ziehen</p>
                  {workPackages.map(pkg => (
                    <div key={pkg.id} draggable onDragStart={(e) => handleDragStart(e, pkg.id, 'package', 'stock')} className="bg-white p-3 rounded-lg border border-amber-200 shadow-sm cursor-grab flex justify-between items-center">
-                      <div className="flex items-center"><Package className="w-4 h-4 text-amber-500 mr-3" /><h4 className="font-medium text-sm text-gray-900">{pkg.name}</h4></div>
+                      <div className="flex items-center"><Package className="w-4 h-4 text-amber-500 mr-3" /><h4 className="font-medium text-gray-900 text-sm">{pkg.name}</h4></div>
                       <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">{pkg.duration} h</span>
                    </div>
                  ))}
@@ -1275,6 +1597,62 @@ const PlanningView = ({
            )}
         </div>
       </div>
+
+      {/* Route Overlay */}
+      {showRouteOverlay && (
+        <div className="absolute inset-0 bg-black/20 backdrop-blur-sm z-50 flex justify-end">
+          <div className="w-full md:w-96 bg-white shadow-2xl h-full p-6 overflow-y-auto animate-in slide-in-from-right duration-200">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Optimierte Route</h2>
+              <button onClick={() => setShowRouteOverlay(null)} className="text-gray-400 hover:text-gray-900"><X className="w-6 h-6"/></button>
+            </div>
+            
+            <div className="mb-6">
+              <div className="flex items-center mb-2">
+                <TechAvatar tech={technicians.find(t => t.id === showRouteOverlay.techId)!} />
+                <div className="ml-3">
+                  <p className="font-medium text-gray-900">{technicians.find(t => t.id === showRouteOverlay.techId)?.name}</p>
+                  <p className="text-xs text-gray-500">Tour für {formatDate(showRouteOverlay.date)}</p>
+                </div>
+              </div>
+              <div className="bg-blue-50 rounded-lg p-3 flex justify-between text-sm text-blue-800">
+                <span>Start: {technicians.find(t => t.id === showRouteOverlay.techId)?.location}</span>
+                <span className="font-bold">~ 184 km</span>
+              </div>
+            </div>
+
+            <div className="relative border-l-2 border-blue-100 ml-3 space-y-8 pb-10">
+              {calculateRoute(showRouteOverlay.techId, showRouteOverlay.date).map((stop, i) => {
+                const entity = data.find(e => e.id === stop.entityId);
+                const customer = data.find(c => c.id === entity?.parentId);
+                return (
+                  <div key={stop.id} className="relative pl-6">
+                    <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-blue-500 border-4 border-white shadow-sm"></div>
+                    <p className="text-xs font-bold text-blue-600 mb-1">{stop.startTime}:00 Uhr</p>
+                    <div className="bg-white border border-gray-200 p-3 rounded-lg shadow-sm">
+                       <h4 className="font-bold text-gray-900 text-sm mb-1">{customer?.name || stop.customName}</h4>
+                       <p className="text-xs text-gray-500 mb-2">{entity?.name}</p>
+                       <div className="flex items-center text-xs text-gray-400">
+                         <Navigation className="w-3 h-3 mr-1" />
+                         <span>~ 45 min Fahrtzeit</span>
+                       </div>
+                    </div>
+                  </div>
+                )
+              })}
+              <div className="relative pl-6">
+                 <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-gray-300 border-4 border-white"></div>
+                 <p className="text-xs font-bold text-gray-400">Tour Ende</p>
+                 <p className="text-sm text-gray-500">Rückkehr zum Standort</p>
+              </div>
+            </div>
+            
+            <button onClick={() => setShowRouteOverlay(null)} className="w-full py-3 mt-4 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700">
+               Route an Techniker senden
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1319,26 +1697,28 @@ const ShoppingView = ({ data, assignments }: { data: Entity[], assignments: Assi
            </button>
          </div>
          {plannedParts.length > 0 ? (
-           <table className="w-full text-left">
-             <thead className="bg-gray-50 border-b border-gray-200">
-               <tr>
-                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Artikelnummer</th>
-                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Bezeichnung</th>
-                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase text-right">Menge</th>
-                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Status</th>
-               </tr>
-             </thead>
-             <tbody className="divide-y divide-gray-100">
-               {plannedParts.map((part, i) => (
-                 <tr key={i} className="hover:bg-gray-50">
-                   <td className="px-6 py-4 font-mono text-sm text-gray-600">{part.article}</td>
-                   <td className="px-6 py-4 text-sm font-medium text-gray-900">{part.name}</td>
-                   <td className="px-6 py-4 text-sm text-gray-900 font-bold text-right">{part.count}</td>
-                   <td className="px-6 py-4"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Verfügbar</span></td>
+           <div className="overflow-x-auto">
+             <table className="w-full text-left">
+               <thead className="bg-gray-50 border-b border-gray-200">
+                 <tr>
+                   <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Artikelnummer</th>
+                   <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Bezeichnung</th>
+                   <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase text-right">Menge</th>
+                   <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Status</th>
                  </tr>
-               ))}
-             </tbody>
-           </table>
+               </thead>
+               <tbody className="divide-y divide-gray-100">
+                 {plannedParts.map((part, i) => (
+                   <tr key={i} className="hover:bg-gray-50">
+                     <td className="px-6 py-4 font-mono text-sm text-gray-600">{part.article}</td>
+                     <td className="px-6 py-4 text-sm font-medium text-gray-900">{part.name}</td>
+                     <td className="px-6 py-4 text-sm text-gray-900 font-bold text-right">{part.count}</td>
+                     <td className="px-6 py-4"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Verfügbar</span></td>
+                   </tr>
+                 ))}
+               </tbody>
+             </table>
+           </div>
          ) : (
            <div className="p-12 text-center text-gray-400">
              <ShoppingCart className="w-12 h-12 mx-auto mb-3 text-gray-300" />
@@ -1387,7 +1767,7 @@ const ReportsView = ({ assignments, technicians }: { assignments: Assignment[], 
          <input type="date" value={reportEnd} onChange={(e) => setReportEnd(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm" />
       </div>
 
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
           <div className="text-sm font-bold text-gray-400 uppercase mb-2">Geplante Einsätze</div>
           <div className="text-3xl font-bold text-gray-900">{stats.totalAssignments}</div>
@@ -1404,30 +1784,32 @@ const ReportsView = ({ assignments, technicians }: { assignments: Assignment[], 
       
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200"><h3 className="font-bold text-gray-900">Techniker Auslastung (im gewählten Zeitraum)</h3></div>
-        <table className="w-full text-left">
-           <thead className="bg-gray-50 border-b border-gray-200">
-             <tr>
-               <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Name</th>
-               <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase text-right">Einsätze</th>
-               <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase text-right">Stunden</th>
-               <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Auslastung (Index)</th>
-             </tr>
-           </thead>
-           <tbody className="divide-y divide-gray-100">
-             {stats.techStats.map((t, i) => (
-               <tr key={i}>
-                 <td className="px-6 py-4 font-medium text-gray-900">{t.name}</td>
-                 <td className="px-6 py-4 text-right text-gray-600">{t.count}</td>
-                 <td className="px-6 py-4 text-right text-gray-600 font-mono">{t.hours} h</td>
-                 <td className="px-6 py-4">
-                   <div className="w-full bg-gray-200 rounded-full h-2 max-w-[100px]">
-                     <div className="bg-blue-600 h-2 rounded-full" style={{width: `${Math.min(100, (t.hours / 40) * 100)}%`}}></div>
-                   </div>
-                 </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+             <thead className="bg-gray-50 border-b border-gray-200">
+               <tr>
+                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Name</th>
+                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase text-right">Einsätze</th>
+                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase text-right">Stunden</th>
+                 <th className="px-6 py-3 text-xs font-bold text-gray-500 uppercase">Auslastung (Index)</th>
                </tr>
-             ))}
-           </tbody>
-        </table>
+             </thead>
+             <tbody className="divide-y divide-gray-100">
+               {stats.techStats.map((t, i) => (
+                 <tr key={i}>
+                   <td className="px-6 py-4 font-medium text-gray-900">{t.name}</td>
+                   <td className="px-6 py-4 text-right text-gray-600">{t.count}</td>
+                   <td className="px-6 py-4 text-right text-gray-600 font-mono">{t.hours} h</td>
+                   <td className="px-6 py-4">
+                     <div className="w-full bg-gray-200 rounded-full h-2 max-w-[100px]">
+                       <div className="bg-blue-600 h-2 rounded-full" style={{width: `${Math.min(100, (t.hours / 40) * 100)}%`}}></div>
+                     </div>
+                   </td>
+                 </tr>
+               ))}
+             </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -1485,15 +1867,15 @@ const AdminView = ({
   }
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex min-h-[600px]">
-        <div className="w-64 bg-gray-50 border-r border-gray-200 p-4">
+    <div className="p-4 md:p-8 max-w-5xl mx-auto">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col md:flex-row min-h-[600px]">
+        <div className="w-full md:w-64 bg-gray-50 border-b md:border-b-0 md:border-r border-gray-200 p-4">
            <h2 className="text-xs font-bold text-gray-400 uppercase mb-4 ml-2">Einstellungen</h2>
-           <nav className="space-y-1">
-             <button onClick={() => setActiveTab('users')} className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${activeTab === 'users' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-white hover:text-gray-900'}`}>Benutzer & Techniker</button>
-             <button onClick={() => setActiveTab('service')} className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${activeTab === 'service' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-white hover:text-gray-900'}`}>Service-Konfiguration</button>
-             <button onClick={() => setActiveTab('packages')} className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${activeTab === 'packages' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-white hover:text-gray-900'}`}>Leistungsbausteine</button>
-             <button onClick={() => setActiveTab('logs')} className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${activeTab === 'logs' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-white hover:text-gray-900'}`}>Änderungsprotokolle</button>
+           <nav className="space-y-1 flex md:block overflow-x-auto md:overflow-visible">
+             <button onClick={() => setActiveTab('users')} className={`whitespace-nowrap w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${activeTab === 'users' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-white hover:text-gray-900'}`}>Benutzer & Techniker</button>
+             <button onClick={() => setActiveTab('service')} className={`whitespace-nowrap w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${activeTab === 'service' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-white hover:text-gray-900'}`}>Service-Konfiguration</button>
+             <button onClick={() => setActiveTab('packages')} className={`whitespace-nowrap w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${activeTab === 'packages' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-white hover:text-gray-900'}`}>Leistungsbausteine</button>
+             <button onClick={() => setActiveTab('logs')} className={`whitespace-nowrap w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${activeTab === 'logs' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-white hover:text-gray-900'}`}>Änderungsprotokolle</button>
            </nav>
         </div>
         <div className="flex-1 p-8 overflow-y-auto">
@@ -1502,8 +1884,8 @@ const AdminView = ({
                <h3 className="text-lg font-bold text-gray-900 mb-4">Techniker verwalten</h3>
                <div className="space-y-4 mb-8">
                  {technicians.map(t => (
-                   <div key={t.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
-                     <div className="flex items-center flex-1">
+                   <div key={t.id} className="flex flex-col md:flex-row md:items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                     <div className="flex items-center flex-1 mb-2 md:mb-0">
                        <TechAvatar tech={t} />
                        <div className="ml-3 w-32">
                          <div className="font-medium text-gray-900 truncate">{t.name}</div>
@@ -1520,7 +1902,7 @@ const AdminView = ({
                           </div>
                        </div>
                      </div>
-                     <button onClick={() => setTechnicians(technicians.filter(x => x.id !== t.id))} className="text-red-500 hover:bg-red-50 p-2 rounded ml-2"><Trash2 className="w-4 h-4"/></button>
+                     <button onClick={() => setTechnicians(technicians.filter(x => x.id !== t.id))} className="text-red-500 hover:bg-red-50 p-2 rounded md:ml-2 self-end md:self-center"><Trash2 className="w-4 h-4"/></button>
                    </div>
                  ))}
                </div>
@@ -1597,8 +1979,8 @@ const AdminView = ({
            {activeTab === 'logs' && (
              <div>
                <h3 className="text-lg font-bold text-gray-900 mb-4">Systemprotokolle</h3>
-               <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
-                  <table className="w-full text-left text-sm">
+               <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden overflow-x-auto">
+                  <table className="w-full text-left text-sm min-w-[600px]">
                     <thead className="bg-gray-100 border-b border-gray-200 text-xs uppercase text-gray-500">
                       <tr>
                         <th className="px-4 py-2">Zeit</th>
@@ -1631,13 +2013,16 @@ const AdminView = ({
 
 const App = () => {
   const [currentUser, setCurrentUser] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<'tasks' | 'assets' | 'planning' | 'shopping' | 'admin' | 'reports'>('assets');
+  const [currentView, setCurrentView] = useState<'tasks' | 'assets' | 'planning' | 'shopping' | 'admin' | 'reports' | 'protocols'>('tasks');
   const [data, setData] = useState<Entity[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [technicians, setTechnicians] = useState<Technician[]>(initialTechnicians);
   const [serviceConfig, setServiceConfig] = useState<ServiceConfig>({ s: 2, m: 4, l: 8 });
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>(initialPackages);
   const [logs, setLogs] = useState<AuditLog[]>(generateAuditLogs());
+  
+  // Mobile Menu State
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const generatedEntities = generateMockData();
@@ -1654,10 +2039,15 @@ const App = () => {
      setData(data.map(e => e.id === updated.id ? updated : e));
   };
 
+  const handleNavClick = (view: typeof currentView) => {
+    setCurrentView(view);
+    setIsMobileMenuOpen(false);
+  }
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-gray-100 text-slate-900">
-      {/* Sidebar */}
-      <div className="w-64 bg-slate-900 text-white flex flex-col flex-shrink-0 print:hidden">
+      {/* Sidebar Desktop */}
+      <div className="hidden md:flex w-64 bg-slate-900 text-white flex-col flex-shrink-0 print:hidden">
         <div className="p-6 flex items-center space-x-3">
           <div className="bg-blue-600 p-2 rounded-lg">
             <LayoutDashboard className="w-6 h-6 text-white" />
@@ -1671,6 +2061,9 @@ const App = () => {
           </button>
           <button onClick={() => setCurrentView('planning')} className={`flex items-center w-full px-4 py-3 rounded-lg transition-colors ${currentView === 'planning' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
             <Calendar className="w-5 h-5 mr-3" /> Termine
+          </button>
+          <button onClick={() => setCurrentView('protocols')} className={`flex items-center w-full px-4 py-3 rounded-lg transition-colors ${currentView === 'protocols' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+            <ClipboardCheck className="w-5 h-5 mr-3" /> Protokolle
           </button>
           <button onClick={() => setCurrentView('assets')} className={`flex items-center w-full px-4 py-3 rounded-lg transition-colors ${currentView === 'assets' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
             <Database className="w-5 h-5 mr-3" /> Assets
@@ -1697,19 +2090,50 @@ const App = () => {
         </div>
       </div>
 
+      {/* Mobile Menu Overlay */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900 text-white flex flex-col md:hidden">
+          <div className="p-6 flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="bg-blue-600 p-2 rounded-lg">
+                <LayoutDashboard className="w-6 h-6 text-white" />
+              </div>
+              <span className="font-bold text-xl tracking-tight">MAkte</span>
+            </div>
+            <button onClick={() => setIsMobileMenuOpen(false)}><X className="w-8 h-8" /></button>
+          </div>
+          <nav className="flex-1 px-6 space-y-4 mt-4">
+             {/* Mobile Nav Items */}
+             <button onClick={() => handleNavClick('tasks')} className="text-xl font-medium block w-full text-left py-2">Aufgaben</button>
+             <button onClick={() => handleNavClick('planning')} className="text-xl font-medium block w-full text-left py-2">Termine</button>
+             <button onClick={() => handleNavClick('protocols')} className="text-xl font-medium block w-full text-left py-2">Protokolle</button>
+             <button onClick={() => handleNavClick('assets')} className="text-xl font-medium block w-full text-left py-2">Assets</button>
+             <button onClick={() => handleNavClick('shopping')} className="text-xl font-medium block w-full text-left py-2">Einkauf</button>
+             <button onClick={() => handleNavClick('reports')} className="text-xl font-medium block w-full text-left py-2">Reports</button>
+             <button onClick={() => handleNavClick('admin')} className="text-xl font-medium block w-full text-left py-2">Admin</button>
+          </nav>
+        </div>
+      )}
+
       {/* Main Content */}
       <div className="flex-1 overflow-hidden flex flex-col min-w-0">
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 flex-shrink-0 print:hidden">
-          <div className="flex items-center text-gray-500 text-sm">
-             <span className="font-medium text-gray-900">DLT_ServiceUndAssetManager</span>
+        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-8 flex-shrink-0 print:hidden">
+          <div className="flex items-center">
+             <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden mr-4 text-gray-600">
+               <Menu className="w-6 h-6" />
+             </button>
+             <div className="flex items-center text-gray-500 text-sm">
+               <span className="font-medium text-gray-900">DLT_ServiceUndAssetManager</span>
+             </div>
           </div>
           <div className="flex items-center space-x-4">
-            <button className="flex items-center text-gray-500 hover:text-gray-900"><Truck className="w-4 h-4 mr-2"/> Device</button>
+            <button className="hidden md:flex items-center text-gray-500 hover:text-gray-900"><Truck className="w-4 h-4 mr-2"/> Device</button>
             <button onClick={() => window.location.reload()} className="p-2 hover:bg-gray-100 rounded-full"><History className="w-4 h-4" /></button>
           </div>
         </header>
         <main className="flex-1 overflow-hidden relative bg-gray-100">
           {currentView === 'tasks' && <div className="h-full overflow-y-auto"><TasksView data={data} technicians={technicians} assignments={assignments} /></div>}
+          {currentView === 'protocols' && <div className="h-full overflow-y-auto"><ProtocolsView /></div>}
           {currentView === 'assets' && <AssetBrowser data={data} onUpdateEntity={updateEntity} />}
           {currentView === 'planning' && <PlanningView data={data} technicians={technicians} assignments={assignments} setAssignments={setAssignments} serviceConfig={serviceConfig} workPackages={workPackages} />}
           {currentView === 'shopping' && <div className="h-full overflow-y-auto"><ShoppingView data={data} assignments={assignments} /></div>}
