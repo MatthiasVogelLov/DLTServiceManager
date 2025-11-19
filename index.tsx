@@ -54,7 +54,10 @@ import {
   PenTool,
   Navigation,
   Map,
-  Menu
+  Menu,
+  FileSpreadsheet,
+  Download,
+  Ticket
 } from 'lucide-react';
 
 // --- Types & Interfaces ---
@@ -99,6 +102,7 @@ interface Technician {
   name: string;
   role: string;
   location: string;
+  startAddress?: string; // Added for routing
   avatarColor: string;
   avatarUrl?: string; 
   maxHours: number;
@@ -147,24 +151,6 @@ interface Task {
   relatedId?: string;
 }
 
-// --- Protocol / Checklist Types ---
-type FieldType = 'text' | 'number' | 'checkbox' | 'select' | 'signature' | 'header';
-
-interface ProtocolField {
-  id: string;
-  label: string;
-  type: FieldType;
-  options?: string[]; // for select
-  value?: any;
-  required?: boolean;
-}
-
-interface ProtocolSection {
-  id: string;
-  title: string;
-  fields: ProtocolField[];
-}
-
 // --- Helper Functions ---
 
 const getMonday = (d: Date) => {
@@ -183,7 +169,7 @@ const addWeeks = (d: Date, weeks: number) => {
 const getKw = (d: Date) => {
   const date = new Date(d.getTime());
   date.setHours(0, 0, 0, 0);
-  date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+  date.setDate(date.getDate() + (date.getDay() + 6) % 7 - 3); // Adjusted to Thursday
   const week1 = new Date(date.getFullYear(), 0, 4);
   return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
 }
@@ -319,12 +305,11 @@ const generateMockAssignments = (entities: Entity[], techs: Technician[]): Assig
   const machines = entities.filter(e => e.type === 'machine');
   const today = new Date();
   
-  // Past assignments (for reports)
   for (let i = 0; i < 25; i++) {
     const tech = techs[Math.floor(Math.random() * techs.length)];
     const machine = machines[Math.floor(Math.random() * machines.length)];
     const date = new Date(today);
-    date.setDate(date.getDate() - Math.floor(Math.random() * 30)); // Last 30 days
+    date.setDate(date.getDate() - Math.floor(Math.random() * 30)); 
     
     if (machine) {
       assignments.push({
@@ -339,13 +324,11 @@ const generateMockAssignments = (entities: Entity[], techs: Technician[]): Assig
     }
   }
 
-  // Future assignments - But leave some machines free for the "Planning Stock"
-  // Only assign about 30% of machines to future dates
   for (let i = 0; i < 5; i++) {
     const tech = techs[Math.floor(Math.random() * techs.length)];
-    const machine = machines[machines.length - 1 - i]; // Use last few machines
+    const machine = machines[machines.length - 1 - i]; 
     const date = new Date(today);
-    date.setDate(date.getDate() + Math.floor(Math.random() * 5) + 1); // Next week
+    date.setDate(date.getDate() + Math.floor(Math.random() * 5) + 1); 
 
     if (machine) {
       assignments.push({
@@ -393,7 +376,7 @@ const initialData: Entity[] = [
       operatingHours: 1950, 
       nextServiceHours: 2000, 
       lastServiceDate: '2023-05-10',
-      nextServiceDate: new Date().toISOString().split('T')[0], // Due TODAY
+      nextServiceDate: new Date().toISOString().split('T')[0], 
       status: 'warning',
       serviceSize: 'M'
     } 
@@ -401,21 +384,15 @@ const initialData: Entity[] = [
   { id: 'cmp1', parentId: 'm1', type: 'component', name: 'Filtereinheit', description: 'Ansaugbereich', images: [] },
   { id: 'art1', parentId: 'cmp1', type: 'part', name: 'Luftfiltereinsatz C1140', details: { articleNumber: 'LF-992', manufacturer: 'Mann+Hummel', quantity: 1 } },
   { id: 'art2', parentId: 'cmp1', type: 'part', name: 'O-Ring Dichtung', details: { articleNumber: 'OR-55', quantity: 2 } },
-  { id: 'm2', parentId: 'bg1', type: 'machine', name: 'Kältetrockner TE 141', details: { status: 'ok', manufacturer: 'Kaeser', nextServiceDate: '2024-02-01', serviceSize: 'S' } },
-  { id: 'c2', type: 'customer', customerNumber: 'KD-10002', name: 'Bäckerei Schmidt', description: 'Filialnetz Nord', details: { status: 'critical' } },
-  { id: 's2', parentId: 'c2', type: 'station', name: 'Filiale Hamburg Mitte', description: 'Backstube', details: { nextServiceDate: '2023-10-28' } },
-  { id: 'm3', parentId: 's2', type: 'machine', name: 'Teigteilmaschine Hydr.', description: 'Linie 1', details: { status: 'critical', nextServiceDate: '2023-10-25', manufacturer: 'Diosna', serviceSize: 'L' } },
-  { id: 'cmp2', parentId: 'm3', type: 'component', name: 'Hydraulikaggregat', description: 'Druckaufbau' },
-  { id: 'art3', parentId: 'cmp2', type: 'part', name: 'Hydraulikfilter H-200', details: { articleNumber: 'HF-200', quantity: 1 } },
 ];
 
 const initialTechnicians: Technician[] = [
-  { id: 't1', name: 'Max Mustermann', role: 'Meister', location: 'Berlin', avatarColor: 'bg-blue-500', maxHours: 8, workDayStart: 8, workDayEnd: 17, avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80' },
-  { id: 't2', name: 'Julia Service', role: 'Elektrik', location: 'Hamburg', avatarColor: 'bg-emerald-500', maxHours: 8, workDayStart: 8, workDayEnd: 16, avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80' },
-  { id: 't3', name: 'Klaus Montage', role: 'Mechanik', location: 'Berlin', avatarColor: 'bg-orange-500', maxHours: 8, workDayStart: 7, workDayEnd: 16 },
-  { id: 't4', name: 'Ahmet Yilmaz', role: 'Hydraulik', location: 'München', avatarColor: 'bg-purple-500', maxHours: 8, workDayStart: 9, workDayEnd: 18, avatarUrl: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80' },
-  { id: 't5', name: 'Sarah Weber', role: 'Azubi', location: 'Hamburg', avatarColor: 'bg-pink-500', maxHours: 6, workDayStart: 8, workDayEnd: 14 },
-  { id: 't6', name: 'Tom Bross', role: 'Meister', location: 'München', avatarColor: 'bg-indigo-500', maxHours: 8, workDayStart: 10, workDayEnd: 19 },
+  { id: 't1', name: 'Max Mustermann', role: 'Meister', location: 'Berlin', startAddress: 'Alexanderplatz 1, 10178 Berlin', avatarColor: 'bg-blue-500', maxHours: 8, workDayStart: 8, workDayEnd: 17, avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80' },
+  { id: 't2', name: 'Julia Service', role: 'Elektrik', location: 'Hamburg', startAddress: 'Hafenstraße 1, 20359 Hamburg', avatarColor: 'bg-emerald-500', maxHours: 8, workDayStart: 8, workDayEnd: 16, avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80' },
+  { id: 't3', name: 'Klaus Montage', role: 'Mechanik', location: 'Berlin', startAddress: 'Frankfurter Allee 1, 10247 Berlin', avatarColor: 'bg-orange-500', maxHours: 8, workDayStart: 7, workDayEnd: 16 },
+  { id: 't4', name: 'Ahmet Yilmaz', role: 'Hydraulik', location: 'München', startAddress: 'Marienplatz 1, 80331 München', avatarColor: 'bg-purple-500', maxHours: 8, workDayStart: 9, workDayEnd: 18, avatarUrl: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80' },
+  { id: 't5', name: 'Sarah Weber', role: 'Azubi', location: 'Hamburg', startAddress: 'Reeperbahn 1, 20359 Hamburg', avatarColor: 'bg-pink-500', maxHours: 6, workDayStart: 8, workDayEnd: 14 },
+  { id: 't6', name: 'Tom Bross', role: 'Meister', location: 'München', startAddress: 'Olympiapark 1, 80809 München', avatarColor: 'bg-indigo-500', maxHours: 8, workDayStart: 10, workDayEnd: 19 },
 ];
 
 const initialPackages: WorkPackage[] = [
@@ -423,77 +400,6 @@ const initialPackages: WorkPackage[] = [
   { id: 'pkg_2', name: 'Abfahrt / Rüstzeit', duration: 0.5 },
   { id: 'pkg_3', name: 'Nacharbeit / Doku', duration: 0.5 },
   { id: 'pkg_4', name: 'Hotelübernachtung', duration: 0 },
-];
-
-// Template for the Maintenance Protocol (based on PDF screenshots)
-const maintenanceProtocolTemplate: ProtocolSection[] = [
-  {
-    id: 's_header',
-    title: 'Stammdaten',
-    fields: [
-      { id: 'customer', label: 'Kunde', type: 'select', options: ['Müller Produktionstechnik', 'Bäckerei Schmidt'], required: true },
-      { id: 'machine', label: 'Maschine/Kompressor', type: 'text', value: 'Kompressor X-100', required: true }
-    ]
-  },
-  {
-    id: 's_10',
-    title: '10 Druckluft-Öl-Separator-Kit',
-    fields: [
-      { id: 'f_10_art', label: 'Artikelnummer wählen', type: 'select', options: ['Kit-A (Standard)', 'Kit-B (Premium)'] },
-      { id: 'f_10_qty', label: 'Anzahl / Menge', type: 'number' },
-      { id: 'f_10_opt', label: 'Altteile vorgelegt?', type: 'checkbox' }
-    ]
-  },
-  {
-    id: 's_11',
-    title: '11 Luftansaugfilterpatrone',
-    fields: [
-      { id: 'f_11_art', label: 'Artikelnummer wählen', type: 'select', options: ['LF-992', 'LF-100'] },
-      { id: 'f_11_qty', label: 'Anzahl / Menge', type: 'number' }
-    ]
-  },
-  {
-    id: 's_12',
-    title: '12 Ölfilter-Kit',
-    fields: [
-      { id: 'f_12_art', label: 'Artikelnummer wählen', type: 'select', options: ['OF-200', 'OF-X'] },
-      { id: 'f_12_qty', label: 'Anzahl / Menge', type: 'number' }
-    ]
-  },
-  {
-    id: 's_13',
-    title: '13 Ölfüllung für Kompressor',
-    fields: [
-      { id: 'f_13_art', label: 'Ölsorte wählen', type: 'select', options: ['Standard Mineral', 'Synthetik Hochleist.'] },
-      { id: 'f_13_qty', label: 'Menge (Liter)', type: 'number' }
-    ]
-  },
-  {
-    id: 's_100',
-    title: 'Messwerte & Einstellungen',
-    fields: [
-      { id: 'f_100_p', label: 'Einstellung Druckschalter (bar)', type: 'number' },
-      { id: 'f_101_t', label: 'Einstellung Stern-Dreieck-Zeit (sec)', type: 'number' },
-      { id: 'f_103_a', label: 'Einstellung Überstromauslöser (A)', type: 'number' },
-      { id: 'f_104_v', label: 'Messung Stromaufnahme (A bei 400V)', type: 'number' }
-    ]
-  },
-  {
-    id: 's_hours',
-    title: 'Betriebsstunden',
-    fields: [
-      { id: 'f_h_run', label: 'Betriebsstunden-Nr. I (Gesamt)', type: 'number' },
-      { id: 'f_h_load', label: 'Laststunden-Nr. II', type: 'number' }
-    ]
-  },
-  {
-    id: 's_sig',
-    title: 'Abschluss & Unterschrift',
-    fields: [
-      { id: 'f_sig_tech', label: 'Unterschrift Servicetechniker', type: 'signature' },
-      { id: 'f_sig_cust', label: 'Unterschrift Kunde', type: 'signature' }
-    ]
-  }
 ];
 
 const getRecursiveParts = (entityId: string, allData: Entity[]): Entity[] => {
@@ -628,127 +534,405 @@ const LoginScreen = ({ onLogin }: { onLogin: (username: string) => void }) => {
   );
 };
 
-const ProtocolsView = () => {
-  const [sections, setSections] = useState<ProtocolSection[]>(maintenanceProtocolTemplate);
-  const [activeCustomer, setActiveCustomer] = useState<string>('');
-  const [isComplete, setIsComplete] = useState(false);
+const TicketForm = ({ data, onComplete, onUpdateEntity }: { data: Entity[], onComplete: () => void, onUpdateEntity: (e: Entity) => void }) => {
+  const [selectedCustomer, setSelectedCustomer] = useState('');
+  const [selectedMachine, setSelectedMachine] = useState('');
+  const [description, setDescription] = useState('');
+  const [priority, setPriority] = useState('critical');
 
-  const handleFieldChange = (sectionId: string, fieldId: string, value: any) => {
-    setSections(prev => prev.map(s => {
-      if (s.id !== sectionId) return s;
-      return {
-        ...s,
-        fields: s.fields.map(f => f.id === fieldId ? { ...f, value } : f)
-      };
-    }));
+  const customers = useMemo(() => data.filter(e => e.type === 'customer'), [data]);
+  const machines = useMemo(() => {
+     if (!selectedCustomer) return [];
+     // Simplified recursive finder for machines under this customer
+     const stationIds = data.filter(e => e.parentId === selectedCustomer).map(e => e.id);
+     // This is a shallow mock, ideally would recurse properly.
+     // For demo, we'll assume flattened or simple hierarchy, OR scan all machines and check parent chain.
+     // Let's just scan all machines for this demo to keep it simple and fast.
+     return data.filter(e => e.type === 'machine');
+  }, [data, selectedCustomer]);
+
+  const handleSubmit = () => {
+    // Update Entity to CRITICAL to trigger Planning Backlog
+    if (selectedMachine) {
+       const machine = data.find(e => e.id === selectedMachine);
+       if (machine && machine.details) {
+         const updated = {
+           ...machine,
+           details: {
+             ...machine.details,
+             status: 'critical' as const,
+             nextServiceDate: new Date().toISOString().split('T')[0] // Due today!
+           }
+         };
+         onUpdateEntity(updated);
+       }
+    }
+    onComplete();
+  }
+
+  return (
+     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 max-w-2xl mx-auto">
+        <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
+           <Ticket className="w-6 h-6 mr-2 text-red-600" /> Störungsticket anlegen
+        </h2>
+        
+        <div className="space-y-6">
+           <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">Kunde</label>
+              <select 
+                className="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-red-500 outline-none"
+                value={selectedCustomer}
+                onChange={e => setSelectedCustomer(e.target.value)}
+              >
+                <option value="">Kunde wählen...</option>
+                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+           </div>
+
+           <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">Betroffene Maschine</label>
+              <select 
+                className="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-red-500 outline-none"
+                value={selectedMachine}
+                onChange={e => setSelectedMachine(e.target.value)}
+                disabled={!selectedCustomer}
+              >
+                <option value="">Maschine wählen...</option>
+                {machines.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+           </div>
+
+           <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">Fehlerbeschreibung</label>
+              <textarea 
+                className="w-full p-3 border border-gray-300 rounded-lg bg-white h-32 focus:ring-2 focus:ring-red-500 outline-none"
+                placeholder="Was ist passiert? Welcher Fehlercode?"
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+              ></textarea>
+           </div>
+           
+           <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">Priorität</label>
+              <div className="flex space-x-4">
+                 <label className="flex items-center p-3 border rounded-lg bg-red-50 border-red-200 cursor-pointer">
+                    <input type="radio" name="prio" value="critical" checked={priority === 'critical'} onChange={() => setPriority('critical')} className="mr-2" />
+                    <span className="text-red-800 font-bold">Hoch (Maschinenstillstand)</span>
+                 </label>
+                 <label className="flex items-center p-3 border rounded-lg cursor-pointer">
+                    <input type="radio" name="prio" value="normal" checked={priority === 'normal'} onChange={() => setPriority('normal')} className="mr-2" />
+                    <span className="text-gray-700">Normal</span>
+                 </label>
+              </div>
+           </div>
+        </div>
+
+        <div className="mt-8 flex justify-end space-x-4">
+           <button onClick={onComplete} className="px-6 py-3 text-gray-600 font-medium hover:bg-gray-100 rounded-lg">Abbrechen</button>
+           <button onClick={handleSubmit} className="px-8 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 shadow-lg flex items-center">
+              <Save className="w-5 h-5 mr-2" /> Ticket erstellen
+           </button>
+        </div>
+     </div>
+  );
+}
+
+const MonteurBerichtForm = ({ onComplete, data }: { onComplete: () => void, data: Entity[] }) => {
+  const [parts, setParts] = useState([{ desc: '', qty: 1 }]);
+  const [selectedCustomer, setSelectedCustomer] = useState('');
+  const customers = useMemo(() => data.filter(e => e.type === 'customer'), [data]);
+
+  const addPart = () => setParts([...parts, { desc: '', qty: 1 }]);
+  const updatePart = (idx: number, field: 'desc' | 'qty', val: any) => {
+    const newParts = [...parts];
+    newParts[idx] = { ...newParts[idx], [field]: val };
+    setParts(newParts);
+  };
+  const removePart = (idx: number) => setParts(parts.filter((_, i) => i !== idx));
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 md:p-8 max-w-4xl mx-auto">
+       <div className="flex flex-col md:flex-row justify-between items-start mb-8 pb-4 border-b border-gray-200">
+         <div>
+           <h2 className="text-xl md:text-2xl font-bold text-gray-900">MONTEURBERICHT 2501</h2>
+           <p className="text-gray-500">Vogel Druckluft-Technik GmbH</p>
+         </div>
+         <div className="text-left md:text-right mt-2 md:mt-0">
+            <div className="font-mono text-sm text-gray-500">Nr. {Math.floor(Math.random()*10000)}</div>
+            <div className="text-sm text-gray-500">{new Date().toLocaleDateString()}</div>
+         </div>
+       </div>
+
+       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+         <div>
+            <label className="block text-xs uppercase font-bold text-gray-500 mb-1">Kunde / Auftragsort</label>
+            <select 
+                className="w-full p-3 border border-gray-300 rounded bg-white h-12"
+                value={selectedCustomer}
+                onChange={e => setSelectedCustomer(e.target.value)}
+            >
+                <option value="">Kunde wählen...</option>
+                {customers.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+         </div>
+         <div><label className="block text-xs uppercase font-bold text-gray-500 mb-1">Maschine (Typ)</label><input className="w-full border border-gray-300 rounded p-3 h-12" placeholder="z.B. GA 37" /></div>
+         <div><label className="block text-xs uppercase font-bold text-gray-500 mb-1">Betriebsstunden</label><input className="w-full border border-gray-300 rounded p-3 h-12" type="number" placeholder="0" /></div>
+       </div>
+
+       <div className="bg-gray-50 p-4 rounded-lg mb-6">
+         <label className="block text-xs uppercase font-bold text-gray-500 mb-2">Art des Auftrages</label>
+         <div className="flex flex-wrap gap-4">
+           {['Reparatur', 'TÜV', 'Störung', 'Neu-Anlage', 'Wartung'].map(t => (
+             <label key={t} className="flex items-center bg-white px-3 py-2 rounded border border-gray-200 shadow-sm cursor-pointer"><input type="checkbox" className="mr-2 w-5 h-5" /><span className="text-sm font-medium">{t}</span></label>
+           ))}
+         </div>
+       </div>
+
+       <div className="mb-6">
+         <label className="block text-xs uppercase font-bold text-gray-500 mb-2">Bericht über ausgeführte Arbeiten</label>
+         <textarea className="w-full border border-gray-300 rounded p-3 h-32 resize-none text-lg" placeholder="Beschreibung..."></textarea>
+       </div>
+
+       <div className="mb-6">
+         <div className="flex justify-between items-center mb-2">
+           <label className="block text-xs uppercase font-bold text-gray-500">Benötigte Ersatzteile</label>
+           <button onClick={addPart} className="text-blue-600 text-sm font-bold hover:underline py-2 px-4 bg-blue-50 rounded">+ Artikel hinzufügen</button>
+         </div>
+         <div className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm text-left">
+               <thead className="bg-gray-100 text-gray-500 uppercase text-xs">
+                 <tr>
+                   <th className="p-3">Bezeichnung / Artikel</th>
+                   <th className="p-3 w-24 text-right">Menge</th>
+                   <th className="p-3 w-10"></th>
+                 </tr>
+               </thead>
+               <tbody className="divide-y divide-gray-200">
+                 {parts.map((p, i) => (
+                   <tr key={i}>
+                     <td className="p-2"><input className="w-full bg-white border border-gray-200 p-2 rounded" placeholder="Artikelbezeichnung" value={p.desc} onChange={(e) => updatePart(i, 'desc', e.target.value)} /></td>
+                     <td className="p-2"><input className="w-full bg-white border border-gray-200 p-2 rounded text-right" type="number" value={p.qty} onChange={(e) => updatePart(i, 'qty', e.target.value)} /></td>
+                     <td className="p-2 text-center"><button onClick={() => removePart(i)} className="text-gray-400 hover:text-red-500"><X className="w-6 h-6"/></button></td>
+                   </tr>
+                 ))}
+               </tbody>
+            </table>
+         </div>
+       </div>
+
+       <div className="mb-6">
+          <label className="block text-xs uppercase font-bold text-gray-500 mb-2">Facharbeiterpauschalen</label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {['DS-Elektro', 'DS-Steuerung', 'DS-Störung', 'DS-Behälterprüfung', 'DS-Kältetechnik', 'DS-Entsorgung'].map(p => (
+              <label key={p} className="flex items-center p-3 border border-gray-200 rounded hover:bg-gray-50 cursor-pointer bg-white">
+                <input type="checkbox" className="mr-3 w-5 h-5" /> <span className="text-sm">{p}</span>
+              </label>
+            ))}
+          </div>
+       </div>
+
+       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 border-t border-gray-200 pt-6">
+          <div>
+            <h4 className="font-bold text-sm mb-4">Zeiterfassung</h4>
+            <div className="grid grid-cols-3 gap-2 text-sm items-center mb-2">
+              <span className="text-gray-500">Arbeitszeit</span>
+              <input type="time" className="border p-2 rounded h-10 bg-white" />
+              <input type="time" className="border p-2 rounded h-10 bg-white" />
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-sm items-center mb-2">
+              <span className="text-gray-500">Anfahrt</span>
+              <input type="time" className="border p-2 rounded h-10 bg-white" />
+              <input type="time" className="border p-2 rounded h-10 bg-white" />
+            </div>
+          </div>
+          <div>
+             <h4 className="font-bold text-sm mb-4">Abschluss</h4>
+             <label className="flex items-center mb-4 p-3 bg-green-50 border border-green-200 rounded cursor-pointer">
+               <input type="checkbox" className="w-6 h-6 mr-3 text-blue-600" />
+               <span className="text-sm font-bold text-green-800">Probelauf ohne Beanstandung</span>
+             </label>
+             <div className="border-2 border-dashed border-gray-300 rounded-lg h-24 flex items-center justify-center text-gray-400 bg-gray-50">
+               Unterschrift Auftraggeber
+             </div>
+          </div>
+       </div>
+
+       <div className="mt-8 flex justify-end">
+         <button onClick={onComplete} className="w-full md:w-auto bg-blue-600 text-white px-8 py-4 rounded-xl font-bold hover:bg-blue-700 shadow-lg flex items-center justify-center text-lg">
+            <CheckCircle2 className="w-6 h-6 mr-2" /> Bericht abschließen
+         </button>
+       </div>
+    </div>
+  );
+};
+
+const PruefProtokollForm = ({ onComplete, data }: { onComplete: () => void, data: Entity[] }) => {
+  const items = [
+    { id: 10, label: 'Druckluft-Öl-Separator-Kit' },
+    { id: 11, label: 'Luftansaugfilterpatrone' },
+    { id: 12, label: 'Ölfilter-Kit' },
+    { id: 13, label: 'Ölfüllung Kompressor' },
+    { id: 14, label: 'Ansaugfiltermatte' },
+    { id: 15, label: 'Antriebskeilriemen' },
+    { id: 16, label: 'Spannrolle / Spannhebel' },
+    { id: 23, label: 'Öl- und Druckluftnachkühler' },
+    { id: 25, label: 'Magnetventil' },
+    { id: 30, label: 'Leckageprüfung Netz' },
+  ];
+
+  const [states, setStates] = useState<Record<number, 'check' | 'clean' | 'renew' | null>>({});
+
+  const toggleState = (id: number, type: 'check' | 'clean' | 'renew') => {
+    setStates(prev => ({...prev, [id]: prev[id] === type ? null : type}));
   };
 
-  if (isComplete) {
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 md:p-8 max-w-4xl mx-auto">
+       <div className="flex flex-col md:flex-row justify-between items-start mb-8 pb-4 border-b border-gray-200">
+         <div>
+           <h2 className="text-xl md:text-2xl font-bold text-gray-900">PRÜFPROTOKOLL 2501</h2>
+           <p className="text-gray-500">Wartung Kompressor / Trockner / Filter</p>
+         </div>
+         <div className="mt-2 md:mt-0 text-left md:text-right">
+            <div className="font-mono text-sm text-gray-500">Komm. Nr. KD-10001</div>
+            <div className="text-sm text-gray-500">Wartung am: {new Date().toLocaleDateString()}</div>
+         </div>
+       </div>
+
+       <div className="overflow-x-auto -mx-4 md:mx-0">
+         <table className="w-full text-left border-collapse min-w-[600px]">
+           <thead>
+             <tr className="border-b-2 border-gray-200">
+               <th className="py-3 pl-2 text-sm font-bold text-gray-600 uppercase">Pos. & Beschreibung</th>
+               <th className="py-3 w-24 text-center text-xs font-bold text-gray-500 uppercase bg-blue-50">Geprüft</th>
+               <th className="py-3 w-24 text-center text-xs font-bold text-gray-500 uppercase bg-green-50">Gereinigt</th>
+               <th className="py-3 w-24 text-center text-xs font-bold text-gray-500 uppercase bg-orange-50">Erneuert</th>
+             </tr>
+           </thead>
+           <tbody>
+             {items.map(item => (
+               <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                 <td className="py-4 pl-2">
+                   <span className="font-mono font-bold text-gray-400 mr-3">{item.id}</span>
+                   <span className="font-medium text-gray-900">{item.label}</span>
+                 </td>
+                 <td className="text-center bg-blue-50/30">
+                   <button 
+                     onClick={() => toggleState(item.id, 'check')}
+                     className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all mx-auto ${states[item.id] === 'check' ? 'bg-blue-600 border-blue-600 text-white scale-110 shadow-md' : 'border-gray-300 text-transparent hover:border-blue-400 bg-white'}`}
+                   >
+                     <CheckCircle2 className="w-6 h-6" />
+                   </button>
+                 </td>
+                 <td className="text-center bg-green-50/30">
+                   <button 
+                     onClick={() => toggleState(item.id, 'clean')}
+                     className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all mx-auto ${states[item.id] === 'clean' ? 'bg-green-600 border-green-600 text-white scale-110 shadow-md' : 'border-gray-300 text-transparent hover:border-green-400 bg-white'}`}
+                   >
+                     <CheckCircle2 className="w-6 h-6" />
+                   </button>
+                 </td>
+                 <td className="text-center bg-orange-50/30">
+                   <button 
+                     onClick={() => toggleState(item.id, 'renew')}
+                     className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all mx-auto ${states[item.id] === 'renew' ? 'bg-orange-600 border-orange-600 text-white scale-110 shadow-md' : 'border-gray-300 text-transparent hover:border-orange-400 bg-white'}`}
+                   >
+                     <CheckCircle2 className="w-6 h-6" />
+                   </button>
+                 </td>
+               </tr>
+             ))}
+           </tbody>
+         </table>
+       </div>
+
+       <div className="mt-8 pt-6 border-t border-gray-200">
+          <label className="block text-xs uppercase font-bold text-gray-500 mb-2">Bemerkungen / Freitext</label>
+          <textarea className="w-full border border-gray-300 rounded p-3 h-24 resize-none text-lg" placeholder="Zusätzliche Beobachtungen..."></textarea>
+       </div>
+
+       <div className="mt-8 flex justify-end">
+         <button onClick={onComplete} className="w-full md:w-auto bg-blue-600 text-white px-8 py-4 rounded-xl font-bold hover:bg-blue-700 shadow-lg flex items-center justify-center text-lg">
+            <CheckCircle2 className="w-6 h-6 mr-2" /> Protokoll speichern
+         </button>
+       </div>
+    </div>
+  );
+};
+
+const TemplatesView = ({ data, onUpdateEntity }: { data: Entity[], onUpdateEntity: (e: Entity) => void }) => {
+  const [selectedTemplate, setSelectedTemplate] = useState<'monteur' | 'pruef' | 'ticket' | null>(null);
+
+  if (selectedTemplate === 'monteur') {
     return (
-      <div className="p-8 max-w-3xl mx-auto text-center">
-        <div className="bg-white p-12 rounded-2xl shadow-sm border border-gray-200">
-          <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
-            <CheckCircle2 className="w-10 h-10" />
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Protokoll gespeichert</h2>
-          <p className="text-gray-500 mb-8">Das Wartungsprotokoll wurde erfolgreich erstellt und als PDF an den Kunden versendet.</p>
-          <button onClick={() => setIsComplete(false)} className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">
-            Neues Protokoll erstellen
-          </button>
-        </div>
+      <div className="p-4 md:p-8">
+        <button onClick={() => setSelectedTemplate(null)} className="mb-4 text-gray-500 hover:text-gray-900 flex items-center font-medium"><ArrowLeft className="w-4 h-4 mr-1"/> Zurück zur Übersicht</button>
+        <MonteurBerichtForm onComplete={() => setSelectedTemplate(null)} data={data} />
       </div>
     );
   }
 
-  return (
-    <div className="p-4 md:p-8 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Wartungsprotokoll</h1>
-          <p className="text-gray-500">Digitales Formular (Tablet-Optimiert)</p>
-        </div>
-        <button className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 flex items-center">
-          <Printer className="w-4 h-4 mr-2" /> Druckvorschau
-        </button>
+  if (selectedTemplate === 'pruef') {
+    return (
+      <div className="p-4 md:p-8">
+        <button onClick={() => setSelectedTemplate(null)} className="mb-4 text-gray-500 hover:text-gray-900 flex items-center font-medium"><ArrowLeft className="w-4 h-4 mr-1"/> Zurück zur Übersicht</button>
+        <PruefProtokollForm onComplete={() => setSelectedTemplate(null)} data={data} />
       </div>
+    );
+  }
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {/* Form Generator */}
-        <div className="divide-y divide-gray-200">
-          {sections.map(section => (
-            <div key={section.id} className="p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-                <ClipboardCheck className="w-5 h-5 mr-2 text-blue-600" />
-                {section.title}
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {section.fields.map(field => (
-                  <div key={field.id} className={field.type === 'checkbox' ? 'flex items-center mt-4' : ''}>
-                    {field.type !== 'checkbox' && (
-                      <label className="block text-sm font-medium text-gray-700 mb-1">{field.label}</label>
-                    )}
-                    
-                    {field.type === 'text' && (
-                      <input 
-                        type="text" 
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                        value={field.value || ''}
-                        onChange={e => handleFieldChange(section.id, field.id, e.target.value)}
-                      />
-                    )}
+  if (selectedTemplate === 'ticket') {
+    return (
+      <div className="p-4 md:p-8">
+         <button onClick={() => setSelectedTemplate(null)} className="mb-4 text-gray-500 hover:text-gray-900 flex items-center font-medium"><ArrowLeft className="w-4 h-4 mr-1"/> Zurück zur Übersicht</button>
+         <TicketForm data={data} onUpdateEntity={onUpdateEntity} onComplete={() => setSelectedTemplate(null)} />
+      </div>
+    )
+  }
 
-                    {field.type === 'number' && (
-                      <input 
-                        type="number" 
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                        value={field.value || ''}
-                        onChange={e => handleFieldChange(section.id, field.id, e.target.value)}
-                      />
-                    )}
-
-                    {field.type === 'select' && (
-                      <select 
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                        value={field.value || ''}
-                        onChange={e => handleFieldChange(section.id, field.id, e.target.value)}
-                      >
-                        <option value="">Bitte wählen...</option>
-                        {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
-                    )}
-
-                    {field.type === 'checkbox' && (
-                      <label className="flex items-center cursor-pointer">
-                        <input 
-                          type="checkbox" 
-                          className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                          checked={field.value || false}
-                          onChange={e => handleFieldChange(section.id, field.id, e.target.checked)}
-                        />
-                        <span className="ml-2 text-sm font-medium text-gray-900">{field.label}</span>
-                      </label>
-                    )}
-
-                    {field.type === 'signature' && (
-                      <div className="col-span-2 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer">
-                        <PenTool className="w-8 h-8 mx-auto text-gray-400 mb-2" />
-                        <span className="text-sm text-gray-500">Hier tippen zum Unterschreiben</span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+  return (
+    <div className="p-8 max-w-6xl mx-auto">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-gray-900">Vorlagen & Protokolle</h1>
+        <p className="text-gray-500">Wählen Sie eine Vorlage für den neuen Vorgang.</p>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        <div 
+          onClick={() => setSelectedTemplate('ticket')}
+          className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-red-300 transition-all cursor-pointer group relative overflow-hidden"
+        >
+           <div className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg uppercase">Priorität</div>
+           <div className="w-14 h-14 bg-red-100 text-red-600 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+             <Ticket className="w-7 h-7" />
+           </div>
+           <h3 className="text-lg font-bold text-gray-900 mb-2">Störungsticket</h3>
+           <p className="text-sm text-gray-500">Meldung einer akuten Störung. Setzt die Maschine auf "Kritisch" und plant einen Einsatz.</p>
         </div>
-        <div className="bg-gray-50 p-6 border-t border-gray-200 flex justify-end">
-          <button 
-            onClick={() => setIsComplete(true)}
-            className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-sm"
-          >
-            Protokoll abschließen
-          </button>
+
+        <div 
+          onClick={() => setSelectedTemplate('monteur')}
+          className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-300 transition-all cursor-pointer group"
+        >
+           <div className="w-14 h-14 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+             <FileText className="w-7 h-7" />
+           </div>
+           <h3 className="text-lg font-bold text-gray-900 mb-2">Monteurbericht 2501</h3>
+           <p className="text-sm text-gray-500">Standardbericht für Reparaturen, Störungen und allgemeine Serviceeinsätze mit Materialerfassung.</p>
         </div>
+
+        <div 
+          onClick={() => setSelectedTemplate('pruef')}
+          className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md hover:border-emerald-300 transition-all cursor-pointer group"
+        >
+           <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+             <ClipboardCheck className="w-7 h-7" />
+           </div>
+           <h3 className="text-lg font-bold text-gray-900 mb-2">Prüfprotokoll 2501</h3>
+           <p className="text-sm text-gray-500">Detaillierte Checkliste (Matrix) für Wartungen an Kompressoren und Trocknern.</p>
+        </div>
+
       </div>
     </div>
   );
@@ -759,17 +943,15 @@ const TasksView = ({ data, technicians, assignments }: { data: Entity[], technic
     const list: Task[] = [];
     const today = new Date();
 
-    // 1. Bevorstehende Wartungen ohne Termin
     const machines = data.filter(e => e.type === 'machine' && e.details?.nextServiceDate);
     machines.forEach(m => {
       const nextDate = new Date(m.details!.nextServiceDate!);
       const diffTime = nextDate.getTime() - today.getTime();
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       
-      // Hat die Maschine schon einen Termin in der Zukunft?
       const hasAssignment = assignments.some(a => a.entityId === m.id && new Date(a.date) >= today);
       
-      if (!hasAssignment && diffDays > -10 && diffDays < 30) { // include slightly overdue
+      if (!hasAssignment && diffDays > -10 && diffDays < 30) { 
          const parentName = data.find(p => p.id === m.parentId)?.name;
          list.push({
            id: `task_m_${m.id}`,
@@ -781,14 +963,12 @@ const TasksView = ({ data, technicians, assignments }: { data: Entity[], technic
       }
     });
 
-    // 2. Techniker Planung für nächste Woche
     const nextWeekStart = getMonday(new Date(today));
     nextWeekStart.setDate(nextWeekStart.getDate() + 7);
     const nextWeekEnd = new Date(nextWeekStart);
     nextWeekEnd.setDate(nextWeekEnd.getDate() + 4);
 
     technicians.forEach(t => {
-       // Prüfen ob Techniker nächste Woche überhaupt Einsätze hat
        const hasJobsNextWeek = assignments.some(a => {
          const d = new Date(a.date);
          return a.technicianId === t.id && d >= nextWeekStart && d <= nextWeekEnd;
@@ -805,9 +985,8 @@ const TasksView = ({ data, technicians, assignments }: { data: Entity[], technic
        }
     });
 
-    // 3. Freie Kapazitäten (Beispiel: Nächster Freitag)
     const nextFriday = new Date(today);
-    nextFriday.setDate(today.getDate() + (5 + 7 - today.getDay()) % 7); // simple logic for upcoming friday
+    nextFriday.setDate(today.getDate() + (5 + 7 - today.getDay()) % 7); 
     const nextFridayStr = nextFriday.toISOString().split('T')[0];
     
     technicians.forEach(t => {
@@ -826,7 +1005,6 @@ const TasksView = ({ data, technicians, assignments }: { data: Entity[], technic
        }
     });
 
-    // 4. Statische Dummy Aufgaben
     list.push({
       id: 'static_1',
       title: 'Einkauf',
@@ -845,6 +1023,7 @@ const TasksView = ({ data, technicians, assignments }: { data: Entity[], technic
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
+      <div className="text-lg font-bold text-blue-600 uppercase mb-2">{new Date().toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Aufgaben & Hinweise</h1>
@@ -895,12 +1074,9 @@ const AssetBrowser = ({ data, onUpdateEntity }: { data: Entity[], onUpdateEntity
   const selectedEntity = selectedId ? data.find(e => e.id === selectedId) : null;
   const children = selectedEntity ? data.filter(e => e.parentId === selectedEntity.id) : data.filter(e => !e.parentId);
   
-  // Search Logic
   const filteredChildren = useMemo(() => {
     if (!searchQuery) return children;
     if (!selectedEntity && searchQuery) {
-      // Global Search on top level or just filter top level?
-      // Let's do a global search for Customers if top level
       return data.filter(e => e.type === 'customer' && (
         e.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
         e.customerNumber?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -933,7 +1109,6 @@ const AssetBrowser = ({ data, onUpdateEntity }: { data: Entity[], onUpdateEntity
 
   return (
     <div className="flex h-full overflow-hidden relative">
-      {/* List Column */}
       <div 
         style={{ width: window.innerWidth < 768 ? '100%' : `${listWidth}%` }} 
         className={`flex flex-col border-r border-gray-200 bg-white flex-shrink-0 ${selectedId && window.innerWidth < 768 ? 'hidden' : 'flex'}`}
@@ -1001,7 +1176,6 @@ const AssetBrowser = ({ data, onUpdateEntity }: { data: Entity[], onUpdateEntity
         </div>
       </div>
 
-      {/* Resizer - Desktop Only */}
       <div 
         className="w-1 bg-gray-200 hover:bg-blue-400 cursor-col-resize transition-colors hidden md:flex items-center justify-center"
         onMouseDown={() => setIsResizing(true)}
@@ -1009,16 +1183,13 @@ const AssetBrowser = ({ data, onUpdateEntity }: { data: Entity[], onUpdateEntity
         <div className="w-0.5 h-8 bg-gray-400 rounded-full"></div>
       </div>
 
-      {/* Detail Column */}
       <div className={`flex-1 bg-white flex flex-col overflow-hidden min-w-0 ${!selectedId && window.innerWidth < 768 ? 'hidden' : 'flex'}`}>
         {selectedEntity ? (
           <div className="flex flex-col h-full">
-            {/* Mobile Back Button */}
             <div className="md:hidden p-4 border-b border-gray-200 flex items-center text-blue-600 font-medium cursor-pointer" onClick={() => setSelectedId(selectedEntity.parentId || null)}>
                <ChevronLeft className="w-5 h-5 mr-1" /> Zurück
             </div>
 
-            {/* Detail Header */}
             <div className="p-6 border-b border-gray-200 flex justify-between items-start">
               <div className="flex items-start space-x-4">
                 <div className="p-3 bg-blue-50 rounded-xl">
@@ -1051,9 +1222,7 @@ const AssetBrowser = ({ data, onUpdateEntity }: { data: Entity[], onUpdateEntity
               </div>
             </div>
             
-            {/* Detail Content */}
             <div className="flex-1 overflow-y-auto p-8 print:p-0">
-               {/* Image Gallery */}
                <div className="mb-8">
                  <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-4 flex items-center">
                    <Camera className="w-4 h-4 mr-2" /> Fotos & Dokumentation
@@ -1069,7 +1238,6 @@ const AssetBrowser = ({ data, onUpdateEntity }: { data: Entity[], onUpdateEntity
                  </div>
                </div>
 
-               {/* Technical Details */}
                {selectedEntity.details && (
                  <div className="mb-8">
                    <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-4 flex items-center">
@@ -1086,7 +1254,6 @@ const AssetBrowser = ({ data, onUpdateEntity }: { data: Entity[], onUpdateEntity
                  </div>
                )}
 
-               {/* Documents */}
                <div className="mb-8">
                  <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-4 flex items-center">
                    <Paperclip className="w-4 h-4 mr-2" /> Anhänge
@@ -1110,7 +1277,6 @@ const AssetBrowser = ({ data, onUpdateEntity }: { data: Entity[], onUpdateEntity
                  </div>
                </div>
 
-               {/* Actions */}
                <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4 print:hidden">
                  <button className="flex-1 py-3 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 hover:border-gray-400 transition-colors">
                    Wartungsprotokoll erstellen
@@ -1161,7 +1327,6 @@ const PlanningView = ({
   const [selectedLocation, setSelectedLocation] = useState<string>('All');
   const [showRouteOverlay, setShowRouteOverlay] = useState<{techId: string, date: string} | null>(null);
   
-  // Mobile Stock Toggle
   const [isMobileStockOpen, setIsMobileStockOpen] = useState(false);
 
   const uniqueLocations = useMemo(() => Array.from(new Set(technicians.map(t => t.location))), [technicians]);
@@ -1171,7 +1336,6 @@ const PlanningView = ({
   const maxHour = Math.max(...filteredTechnicians.map(t => t.workDayEnd)) || 18;
   const dayDuration = maxHour - minHour;
 
-  // Holidays
   const holidays = useMemo(() => getGermanHolidays(currentWeekStart.getFullYear()), [currentWeekStart]);
 
   const isInRange = (dateStr: string | undefined) => {
@@ -1190,7 +1354,6 @@ const PlanningView = ({
       if (e.type !== 'machine') return false;
       const status = e.details?.status;
       const nextDate = e.details?.nextServiceDate;
-      // Allow warning/critical status OR if date is set and overdue/in range
       const needsService = status === 'warning' || status === 'critical' || nextDate;
       
       if (!needsService) return false;
@@ -1200,7 +1363,6 @@ const PlanningView = ({
       const d = new Date(nextDate);
       const now = new Date();
       now.setHours(0,0,0,0);
-      // Show if overdue or in range
       if (d < now) return true; 
       return isInRange(nextDate);
     });
@@ -1220,7 +1382,6 @@ const PlanningView = ({
     const { id, type, origin, duration: oldDuration } = JSON.parse(rawData);
     
     if (origin === 'board') {
-      // Reassign
       const assignmentId = id;
       setAssignments(assignments.map(a => {
         if (a.id === assignmentId) {
@@ -1234,7 +1395,6 @@ const PlanningView = ({
         return a;
       }));
     } else {
-      // New Assignment
       let newAssignment: Assignment;
       let duration = 1;
       let customName = '';
@@ -1299,7 +1459,6 @@ const PlanningView = ({
     setAssignments(assignments.filter(a => a.id !== id));
   }
 
-  // Route Calc Mock
   const calculateRoute = (techId: string, date: string) => {
     const daysAssignments = assignments.filter(a => a.technicianId === techId && a.date === date);
     daysAssignments.sort((a,b) => (a.startTime || 0) - (b.startTime || 0));
@@ -1308,21 +1467,18 @@ const PlanningView = ({
 
   return (
     <div className="flex h-full w-full overflow-hidden relative">
-      {/* Middle: Board */}
       <div className="flex-1 flex flex-col border-r border-gray-200 bg-gray-50 print:w-full print:border-none min-w-0">
         <div className="h-16 bg-white border-b border-gray-200 px-6 flex items-center justify-between flex-shrink-0 print:hidden">
           <div className="flex items-center space-x-2 md:space-x-4 overflow-x-auto">
             <CalendarDays className="w-5 h-5 text-gray-500 hidden md:block" />
             <h2 className="text-lg font-bold text-gray-900 hidden md:block">Einsatzplanung</h2>
             
-            {/* View Mode Toggle */}
             <div className="flex bg-gray-100 rounded-lg p-1 flex-shrink-0">
                <button onClick={() => setViewMode('day')} className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${viewMode === 'day' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Tag</button>
                <button onClick={() => setViewMode('week')} className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${viewMode === 'week' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Woche</button>
                <button onClick={() => setViewMode('month')} className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${viewMode === 'month' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>Monat</button>
             </div>
             
-            {/* Location Filter */}
             <select 
               className="bg-gray-50 border border-gray-300 rounded px-3 py-1 text-sm outline-none focus:ring-2 focus:ring-blue-500 hidden md:block"
               value={selectedLocation}
@@ -1529,7 +1685,6 @@ const PlanningView = ({
         </div>
       </div>
 
-      {/* Right: Stock (Responsive) */}
       <div 
         onDragOver={(e) => { e.preventDefault(); setIsDraggingOverStock(true); }}
         onDragLeave={() => setIsDraggingOverStock(false)}
@@ -1598,7 +1753,6 @@ const PlanningView = ({
         </div>
       </div>
 
-      {/* Route Overlay */}
       {showRouteOverlay && (
         <div className="absolute inset-0 bg-black/20 backdrop-blur-sm z-50 flex justify-end">
           <div className="w-full md:w-96 bg-white shadow-2xl h-full p-6 overflow-y-auto animate-in slide-in-from-right duration-200">
@@ -1616,7 +1770,7 @@ const PlanningView = ({
                 </div>
               </div>
               <div className="bg-blue-50 rounded-lg p-3 flex justify-between text-sm text-blue-800">
-                <span>Start: {technicians.find(t => t.id === showRouteOverlay.techId)?.location}</span>
+                <span>Start: {technicians.find(t => t.id === showRouteOverlay.techId)?.startAddress || technicians.find(t => t.id === showRouteOverlay.techId)?.location}</span>
                 <span className="font-bold">~ 184 km</span>
               </div>
             </div>
@@ -1736,7 +1890,7 @@ const ReportsView = ({ assignments, technicians }: { assignments: Assignment[], 
 
   useEffect(() => {
     const d = new Date();
-    d.setMonth(d.getMonth() - 1); // Default view: Last month to next month
+    d.setMonth(d.getMonth() - 1); 
     setReportStart(d.toISOString().split('T')[0]);
   }, []);
 
@@ -1832,39 +1986,80 @@ const AdminView = ({
   setWorkPackages: (wp: WorkPackage[]) => void,
   logs: AuditLog[]
 }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'service' | 'packages' | 'logs'>('users');
-  const [newTechName, setNewTechName] = useState('');
-  const [newTechLocation, setNewTechLocation] = useState('');
-  const [newTechUrl, setNewTechUrl] = useState('');
-  const [newTechStart, setNewTechStart] = useState(8);
-  const [newTechEnd, setNewTechEnd] = useState(17);
+  const [activeTab, setActiveTab] = useState<'users' | 'service' | 'packages' | 'logs' | 'import'>('users');
+  const [editingTech, setEditingTech] = useState<Technician | null>(null);
+  const [isTechModalOpen, setIsTechModalOpen] = useState(false);
+  const [importStatus, setImportStatus] = useState<'idle' | 'loading' | 'success'>('idle');
 
-  const handleAddTech = () => {
-    if(newTechName) {
-      setTechnicians([...technicians, {
-        id: Math.random().toString(),
-        name: newTechName,
-        role: 'Techniker',
-        location: newTechLocation || 'Berlin',
-        avatarColor: 'bg-gray-500',
-        maxHours: 8,
-        workDayStart: newTechStart,
-        workDayEnd: newTechEnd,
-        avatarUrl: newTechUrl
-      }]);
-      setNewTechName('');
-      setNewTechLocation('');
-      setNewTechUrl('');
+  // New/Edit Tech State
+  const [editName, setEditName] = useState('');
+  const [editRole, setEditRole] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editAvatar, setEditAvatar] = useState('');
+  const [editStart, setEditStart] = useState(8);
+  const [editEnd, setEditEnd] = useState(17);
+
+  const openEdit = (tech?: Technician) => {
+    if (tech) {
+      setEditingTech(tech);
+      setEditName(tech.name);
+      setEditRole(tech.role);
+      setEditLocation(tech.location);
+      setEditAddress(tech.startAddress || '');
+      setEditAvatar(tech.avatarUrl || '');
+      setEditStart(tech.workDayStart);
+      setEditEnd(tech.workDayEnd);
+    } else {
+      setEditingTech(null); // New mode
+      setEditName('');
+      setEditRole('Techniker');
+      setEditLocation('Berlin');
+      setEditAddress('');
+      setEditAvatar('');
+      setEditStart(8);
+      setEditEnd(17);
     }
-  }
+    setIsTechModalOpen(true);
+  };
 
-  const handleUpdateTechTime = (id: string, field: 'workDayStart' | 'workDayEnd', val: number) => {
-     setTechnicians(technicians.map(t => t.id === id ? {...t, [field]: val} : t));
-  }
+  const saveTech = () => {
+    if (!editName) return;
+    const newTech: Technician = {
+      id: editingTech ? editingTech.id : Math.random().toString(),
+      name: editName,
+      role: editRole,
+      location: editLocation,
+      startAddress: editAddress,
+      avatarUrl: editAvatar,
+      avatarColor: 'bg-gray-500',
+      workDayStart: editStart,
+      workDayEnd: editEnd,
+      maxHours: editEnd - editStart
+    };
+
+    if (editingTech) {
+      setTechnicians(technicians.map(t => t.id === editingTech.id ? newTech : t));
+    } else {
+      setTechnicians([...technicians, newTech]);
+    }
+    setEditingTech(null);
+    setIsTechModalOpen(false);
+    // Reset form
+    setEditName('');
+  };
 
   const handleAddPackage = () => {
      setWorkPackages([...workPackages, { id: Math.random().toString(), name: 'Neue Leistung', duration: 1 }]);
   }
+
+  const handleSimulateImport = () => {
+    setImportStatus('loading');
+    setTimeout(() => {
+      setImportStatus('success');
+      setTimeout(() => setImportStatus('idle'), 3000);
+    }, 1500);
+  };
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto">
@@ -1875,52 +2070,138 @@ const AdminView = ({
              <button onClick={() => setActiveTab('users')} className={`whitespace-nowrap w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${activeTab === 'users' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-white hover:text-gray-900'}`}>Benutzer & Techniker</button>
              <button onClick={() => setActiveTab('service')} className={`whitespace-nowrap w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${activeTab === 'service' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-white hover:text-gray-900'}`}>Service-Konfiguration</button>
              <button onClick={() => setActiveTab('packages')} className={`whitespace-nowrap w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${activeTab === 'packages' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-white hover:text-gray-900'}`}>Leistungsbausteine</button>
+             <button onClick={() => setActiveTab('import')} className={`whitespace-nowrap w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${activeTab === 'import' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-white hover:text-gray-900'}`}>Datenimport</button>
              <button onClick={() => setActiveTab('logs')} className={`whitespace-nowrap w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${activeTab === 'logs' ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-white hover:text-gray-900'}`}>Änderungsprotokolle</button>
            </nav>
         </div>
         <div className="flex-1 p-8 overflow-y-auto">
            {activeTab === 'users' && (
              <div>
-               <h3 className="text-lg font-bold text-gray-900 mb-4">Techniker verwalten</h3>
+               <div className="flex justify-between items-center mb-6">
+                 <h3 className="text-lg font-bold text-gray-900">Techniker verwalten</h3>
+                 <button onClick={() => openEdit()} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 flex items-center"><Plus className="w-4 h-4 mr-2"/> Neu anlegen</button>
+               </div>
+               
                <div className="space-y-4 mb-8">
                  {technicians.map(t => (
-                   <div key={t.id} className="flex flex-col md:flex-row md:items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
-                     <div className="flex items-center flex-1 mb-2 md:mb-0">
-                       <TechAvatar tech={t} />
-                       <div className="ml-3 w-32">
-                         <div className="font-medium text-gray-900 truncate">{t.name}</div>
-                         <div className="text-xs text-gray-500">{t.role} | {t.location}</div>
+                   <div key={t.id} className="p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:border-blue-300 transition-all">
+                     <div className="flex items-start justify-between mb-4">
+                       <div className="flex items-center">
+                         <TechAvatar tech={t} />
+                         <div className="ml-3">
+                           <div className="font-bold text-gray-900">{t.name}</div>
+                           <div className="text-xs text-gray-500">{t.role} | {t.location}</div>
+                         </div>
                        </div>
-                       <div className="ml-4 flex items-center space-x-2">
-                          <div className="flex flex-col">
-                             <label className="text-[9px] text-gray-400 uppercase">Start</label>
-                             <input type="number" value={t.workDayStart} onChange={(e) => handleUpdateTechTime(t.id, 'workDayStart', parseInt(e.target.value))} className="w-12 text-xs border border-gray-300 rounded p-1" />
-                          </div>
-                          <div className="flex flex-col">
-                             <label className="text-[9px] text-gray-400 uppercase">Ende</label>
-                             <input type="number" value={t.workDayEnd} onChange={(e) => handleUpdateTechTime(t.id, 'workDayEnd', parseInt(e.target.value))} className="w-12 text-xs border border-gray-300 rounded p-1" />
-                          </div>
+                       <div className="flex space-x-2">
+                         <button onClick={() => openEdit(t)} className="p-2 text-gray-500 hover:bg-gray-100 rounded"><Edit2 className="w-4 h-4"/></button>
+                         <button onClick={() => setTechnicians(technicians.filter(x => x.id !== t.id))} className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button>
                        </div>
                      </div>
-                     <button onClick={() => setTechnicians(technicians.filter(x => x.id !== t.id))} className="text-red-500 hover:bg-red-50 p-2 rounded md:ml-2 self-end md:self-center"><Trash2 className="w-4 h-4"/></button>
+                     <div className="grid grid-cols-2 gap-4 text-xs text-gray-500 bg-gray-50 p-3 rounded-lg">
+                       <div>
+                         <span className="block font-bold uppercase text-[10px] text-gray-400">Startadresse</span>
+                         <span className="truncate block" title={t.startAddress}>{t.startAddress || '-'}</span>
+                       </div>
+                       <div>
+                         <span className="block font-bold uppercase text-[10px] text-gray-400">Arbeitszeit</span>
+                         <span>{t.workDayStart}:00 - {t.workDayEnd}:00 Uhr</span>
+                       </div>
+                     </div>
                    </div>
                  ))}
                </div>
-               <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                 <h4 className="text-sm font-bold text-gray-700 mb-3">Neuen Techniker anlegen</h4>
-                 <div className="grid grid-cols-2 gap-3 mb-3">
-                    <input placeholder="Name" value={newTechName} onChange={(e) => setNewTechName(e.target.value)} className="border border-gray-300 rounded px-3 py-2 text-sm" />
-                    <input placeholder="Standort (z.B. Berlin)" value={newTechLocation} onChange={(e) => setNewTechLocation(e.target.value)} className="border border-gray-300 rounded px-3 py-2 text-sm" />
-                    <input placeholder="Avatar URL (Optional)" value={newTechUrl} onChange={(e) => setNewTechUrl(e.target.value)} className="border border-gray-300 rounded px-3 py-2 text-sm col-span-2" />
+
+               {/* Edit Modal/Area */}
+               {isTechModalOpen && (
+                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                   <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                     <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                       <h3 className="font-bold text-lg">{editingTech ? 'Techniker bearbeiten' : 'Neuer Techniker'}</h3>
+                       <button onClick={() => setIsTechModalOpen(false)} className="text-gray-400 hover:text-gray-900"><X className="w-5 h-5"/></button>
+                     </div>
+                     <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                       <div className="grid grid-cols-2 gap-4">
+                         <div>
+                           <label className="block text-xs font-bold text-gray-500 mb-1">Name</label>
+                           <input value={editName} onChange={e => setEditName(e.target.value)} className="w-full border border-gray-300 rounded p-2 text-sm" />
+                         </div>
+                         <div>
+                           <label className="block text-xs font-bold text-gray-500 mb-1">Rolle</label>
+                           <input value={editRole} onChange={e => setEditRole(e.target.value)} className="w-full border border-gray-300 rounded p-2 text-sm" />
+                         </div>
+                       </div>
+                       <div>
+                         <label className="block text-xs font-bold text-gray-500 mb-1">Standort (Basis)</label>
+                         <input value={editLocation} onChange={e => setEditLocation(e.target.value)} className="w-full border border-gray-300 rounded p-2 text-sm" placeholder="z.B. Berlin" />
+                       </div>
+                       <div>
+                         <label className="block text-xs font-bold text-gray-500 mb-1">Startadresse (für Routing)</label>
+                         <input value={editAddress} onChange={e => setEditAddress(e.target.value)} className="w-full border border-gray-300 rounded p-2 text-sm" placeholder="Straße, PLZ Stadt" />
+                       </div>
+                       <div>
+                         <label className="block text-xs font-bold text-gray-500 mb-1">Profilbild URL</label>
+                         <input value={editAvatar} onChange={e => setEditAvatar(e.target.value)} className="w-full border border-gray-300 rounded p-2 text-sm" placeholder="https://..." />
+                       </div>
+                       <div className="grid grid-cols-2 gap-4">
+                         <div>
+                           <label className="block text-xs font-bold text-gray-500 mb-1">Arbeitsbeginn</label>
+                           <input type="number" value={editStart} onChange={e => setEditStart(parseInt(e.target.value))} className="w-full border border-gray-300 rounded p-2 text-sm" />
+                         </div>
+                         <div>
+                           <label className="block text-xs font-bold text-gray-500 mb-1">Arbeitsende</label>
+                           <input type="number" value={editEnd} onChange={e => setEditEnd(parseInt(e.target.value))} className="w-full border border-gray-300 rounded p-2 text-sm" />
+                         </div>
+                       </div>
+                     </div>
+                     <div className="bg-gray-50 px-6 py-4 flex justify-end space-x-3">
+                       <button onClick={() => setIsTechModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium">Abbrechen</button>
+                       <button onClick={saveTech} className="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700">Speichern</button>
+                     </div>
+                   </div>
                  </div>
-                 <div className="flex items-center space-x-3 mb-3">
-                    <span className="text-xs font-bold text-gray-500">Arbeitszeit:</span>
-                    <input type="number" value={newTechStart} onChange={(e) => setNewTechStart(parseInt(e.target.value))} className="w-16 border border-gray-300 rounded px-2 py-1 text-sm" />
-                    <span className="text-xs text-gray-400">bis</span>
-                    <input type="number" value={newTechEnd} onChange={(e) => setNewTechEnd(parseInt(e.target.value))} className="w-16 border border-gray-300 rounded px-2 py-1 text-sm" />
+               )}
+             </div>
+           )}
+
+           {activeTab === 'import' && (
+             <div>
+               <h3 className="text-lg font-bold text-gray-900 mb-4">Datenimport</h3>
+               <p className="text-sm text-gray-500 mb-6">Importieren Sie Kunden- und Artikelstämme aus Ihrem ERP-System (CSV Format).</p>
+               
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-blue-400 transition-colors bg-gray-50">
+                    <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <UserPlus className="w-6 h-6" />
+                    </div>
+                    <h4 className="font-bold text-gray-900 mb-1">Kundenstamm importieren</h4>
+                    <p className="text-xs text-gray-500 mb-4">CSV, max 10MB</p>
+                    <button onClick={handleSimulateImport} className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-100">
+                      {importStatus === 'loading' ? 'Import läuft...' : 'Datei auswählen'}
+                    </button>
                  </div>
-                 <button onClick={handleAddTech} className="w-full py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium">Hinzufügen</button>
+
+                 <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-green-400 transition-colors bg-gray-50">
+                    <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Box className="w-6 h-6" />
+                    </div>
+                    <h4 className="font-bold text-gray-900 mb-1">Artikelstamm importieren</h4>
+                    <p className="text-xs text-gray-500 mb-4">CSV, max 50MB</p>
+                    <button onClick={handleSimulateImport} className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-100">
+                      {importStatus === 'loading' ? 'Import läuft...' : 'Datei auswählen'}
+                    </button>
+                 </div>
                </div>
+
+               {importStatus === 'success' && (
+                 <div className="mt-6 p-4 bg-green-50 text-green-800 rounded-lg border border-green-200 flex items-center animate-in fade-in slide-in-from-bottom-2">
+                   <CheckCircle2 className="w-5 h-5 mr-3" />
+                   <div>
+                     <p className="font-bold">Import erfolgreich!</p>
+                     <p className="text-xs mt-1">1.024 Datensätze wurden in die Datenbank übernommen.</p>
+                   </div>
+                 </div>
+               )}
              </div>
            )}
 
@@ -2013,7 +2294,7 @@ const AdminView = ({
 
 const App = () => {
   const [currentUser, setCurrentUser] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<'tasks' | 'assets' | 'planning' | 'shopping' | 'admin' | 'reports' | 'protocols'>('tasks');
+  const [currentView, setCurrentView] = useState<'tasks' | 'assets' | 'planning' | 'shopping' | 'admin' | 'reports' | 'templates'>('tasks');
   const [data, setData] = useState<Entity[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [technicians, setTechnicians] = useState<Technician[]>(initialTechnicians);
@@ -2021,7 +2302,6 @@ const App = () => {
   const [workPackages, setWorkPackages] = useState<WorkPackage[]>(initialPackages);
   const [logs, setLogs] = useState<AuditLog[]>(generateAuditLogs());
   
-  // Mobile Menu State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -2046,7 +2326,6 @@ const App = () => {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-gray-100 text-slate-900">
-      {/* Sidebar Desktop */}
       <div className="hidden md:flex w-64 bg-slate-900 text-white flex-col flex-shrink-0 print:hidden">
         <div className="p-6 flex items-center space-x-3">
           <div className="bg-blue-600 p-2 rounded-lg">
@@ -2062,8 +2341,8 @@ const App = () => {
           <button onClick={() => setCurrentView('planning')} className={`flex items-center w-full px-4 py-3 rounded-lg transition-colors ${currentView === 'planning' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
             <Calendar className="w-5 h-5 mr-3" /> Termine
           </button>
-          <button onClick={() => setCurrentView('protocols')} className={`flex items-center w-full px-4 py-3 rounded-lg transition-colors ${currentView === 'protocols' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
-            <ClipboardCheck className="w-5 h-5 mr-3" /> Protokolle
+          <button onClick={() => setCurrentView('templates')} className={`flex items-center w-full px-4 py-3 rounded-lg transition-colors ${currentView === 'templates' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+            <ClipboardCheck className="w-5 h-5 mr-3" /> Vorlagen
           </button>
           <button onClick={() => setCurrentView('assets')} className={`flex items-center w-full px-4 py-3 rounded-lg transition-colors ${currentView === 'assets' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
             <Database className="w-5 h-5 mr-3" /> Assets
@@ -2090,7 +2369,6 @@ const App = () => {
         </div>
       </div>
 
-      {/* Mobile Menu Overlay */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900 text-white flex flex-col md:hidden">
           <div className="p-6 flex items-center justify-between">
@@ -2103,10 +2381,9 @@ const App = () => {
             <button onClick={() => setIsMobileMenuOpen(false)}><X className="w-8 h-8" /></button>
           </div>
           <nav className="flex-1 px-6 space-y-4 mt-4">
-             {/* Mobile Nav Items */}
              <button onClick={() => handleNavClick('tasks')} className="text-xl font-medium block w-full text-left py-2">Aufgaben</button>
              <button onClick={() => handleNavClick('planning')} className="text-xl font-medium block w-full text-left py-2">Termine</button>
-             <button onClick={() => handleNavClick('protocols')} className="text-xl font-medium block w-full text-left py-2">Protokolle</button>
+             <button onClick={() => handleNavClick('templates')} className="text-xl font-medium block w-full text-left py-2">Vorlagen</button>
              <button onClick={() => handleNavClick('assets')} className="text-xl font-medium block w-full text-left py-2">Assets</button>
              <button onClick={() => handleNavClick('shopping')} className="text-xl font-medium block w-full text-left py-2">Einkauf</button>
              <button onClick={() => handleNavClick('reports')} className="text-xl font-medium block w-full text-left py-2">Reports</button>
@@ -2115,7 +2392,6 @@ const App = () => {
         </div>
       )}
 
-      {/* Main Content */}
       <div className="flex-1 overflow-hidden flex flex-col min-w-0">
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-8 flex-shrink-0 print:hidden">
           <div className="flex items-center">
@@ -2133,7 +2409,7 @@ const App = () => {
         </header>
         <main className="flex-1 overflow-hidden relative bg-gray-100">
           {currentView === 'tasks' && <div className="h-full overflow-y-auto"><TasksView data={data} technicians={technicians} assignments={assignments} /></div>}
-          {currentView === 'protocols' && <div className="h-full overflow-y-auto"><ProtocolsView /></div>}
+          {currentView === 'templates' && <div className="h-full overflow-y-auto"><TemplatesView data={data} onUpdateEntity={updateEntity} /></div>}
           {currentView === 'assets' && <AssetBrowser data={data} onUpdateEntity={updateEntity} />}
           {currentView === 'planning' && <PlanningView data={data} technicians={technicians} assignments={assignments} setAssignments={setAssignments} serviceConfig={serviceConfig} workPackages={workPackages} />}
           {currentView === 'shopping' && <div className="h-full overflow-y-auto"><ShoppingView data={data} assignments={assignments} /></div>}
